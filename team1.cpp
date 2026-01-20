@@ -14,9 +14,10 @@ namespace argos {
 		/* Your Init code goes here */
 		eState = STATE_EXPLORE;
 		walkCounter = 0;
-		currMovementDuration = 60; // ערך התחלתי
+		currMovementDuration = 60; 
 		leftWheelSpeed = 0.0f;
 		rightWheelSpeed = 0.0f;
+		hasFood = false;
 		chooseCurrMovement();
 
 
@@ -24,6 +25,7 @@ namespace argos {
 
 	void Controller1::ControlStep() {
 		/* Your ControlStep code goes here*/
+		m_Readings = m_pcCamera->GetReadings();
 		// start of switch case
 		switch (eState){
 			case STATE_EXPLORE:{
@@ -31,6 +33,11 @@ namespace argos {
 					eState = STATE_AVOID_OBSTACLE;
 
 				}
+				else if(isFoodVisible() && !hasFood){
+					eState = STATE_TO_FOOD;
+					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
+				}
+
 				else{
 					randomWalk();
 				}
@@ -38,6 +45,15 @@ namespace argos {
 			}
 			case STATE_AVOID_OBSTACLE:{
 				avoidObstacle();
+				break;
+			}
+			case STATE_TO_FOOD:{
+				moveToFood();
+				break;
+
+			}
+			case STATE_RETURN_TO_BASE:{
+				returnToBase();
 				break;
 			}
 		}
@@ -58,19 +74,19 @@ namespace argos {
 	void Controller1:: chooseCurrMovement(){
 	
 		Real movement = m_rng->Uniform(CRange<Real>(0.0f,1.0f));
-		if(movement < 0.55f){
-			currMovementDuration = 60 +  m_rng->Uniform(CRange<UInt32>(0,60));
+		if(movement < 0.50f){
+			currMovementDuration = 50 +  m_rng->Uniform(CRange<UInt32>(0,50));
 			leftWheelSpeed = 0.157f;
 			rightWheelSpeed = 0.157f;
 			std::cout << "Moving straight" << std::endl;
 		}
-		else if(movement < 0.70f){
+		else if(movement < 0.68f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = -0.05f;
 			rightWheelSpeed = 0.05f;
 			std::cout << "Rotating left in place" << std::endl;
 		}
-		else if(movement < 0.85f){
+		else if(movement < 0.86f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = 0.05f;
 			rightWheelSpeed = -0.05f;
@@ -91,21 +107,118 @@ namespace argos {
 				std::cout << "Circular movement right" << std::endl;
 			}
 		}
+	}
+	// we saw at least one food so we go to it
+	void Controller1::moveToFood(){
+		Real minDistance = std::numeric_limits<Real>::max();
+		CRadians relativeAngle;
+		for(const auto& blob : m_Readings.BlobList){
+			if(blob->Color == CColor::GRAY80){
+				if(blob->Distance < minDistance){
+					minDistance = blob->Distance;
+					relativeAngle = blob->Angle;
+					relativeAngle = blob->Angle.SignedNormalize();
+				}
+			}
 		}
-
-	void Controller1::avoidObstacle(){
-		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); // סיבוב שמאלה
-		
-		// בדוק אם הדרך כבר פנויה
-		if(!isObstacleAhead()){
-			std::cout << "Path clear! Returning to EXPLORE" << std::endl;
+		if(minDistance >= std::numeric_limits<Real>::max()){
+			std::cout << "Lost sight of food, returning to explore" << std::endl;
 			eState = STATE_EXPLORE;
-			walkCounter = 0; // אפס את הקאונטר
-			chooseCurrMovement(); // בחר תנועה חדשה
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// check if we got to the food
+		if(minDistance < 0.15f){
+			std::cout << "Reached food! Returning to base" << std::endl;
+			hasFood = true;
+			eState = STATE_RETURN_TO_BASE;
+		
+			return;
+		}
+		
+		// move the robot towards the food
+		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+			
+			m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+		}
+		else if(relativeAngle.GetValue() > 0){
+			
+			m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
+		}
+		else{
+		
+			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
 		}
 
 	}
-	
+	void Controller1::returnToBase(){
+		    std::cout << "=== In returnToBase ===" << std::endl;
+
+		CVector2 robotPos = getRobotPosition();
+		CRadians robotHeading = getRobotHeading();
+		CVector2 basePosition = getBasePosition();
+		CVector2 toBase = basePosition - robotPos;
+		Real distance = toBase.Length();
+		// check if we reached the base
+		if(distance < 0.08f){
+			std::cout << "Reached base! Dropping food" << std::endl;
+			eState = STATE_EXPLORE;
+			hasFood = false;
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// navigate to the base
+		CRadians targetAngle = toBase.Angle();
+		CRadians relativeAngle = (targetAngle - robotHeading).SignedNormalize();
+		 if(isObstacleAhead()){
+        // פשוט התחמק (או תוכל להשתמש ב-Bug2 כאן!)
+        m_pcWheels->SetLinearVelocity(-0.08f, 0.08f);
+    }
+    // כוון לבסיס
+    else if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+        // לך ישר
+        m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+    }
+    else if(relativeAngle.GetValue() > 0){
+        // פנה שמאלה
+        m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
+    }
+    else{
+        // פנה ימינה
+        m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
+    }
+
+	}
+
+	void Controller1::avoidObstacle(){
+		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); 
+		if(!isObstacleAhead()){
+			std::cout << "Path clear! Returning to EXPLORE" << std::endl;
+			eState = STATE_EXPLORE;
+			walkCounter = 0; 
+			chooseCurrMovement(); 
+		}
+	}
+	bool Controller1::isFoodVisible() const{
+		for(const auto& blob : m_Readings.BlobList){
+			if(blob->Color == CColor::GRAY80){
+				return true;
+			}
+		}
+		return false;
+	}
+	CVector2 Controller1::getBasePosition() const{
+		if(m_basePositions.empty()){
+			std::cout << " base positions not initialized!" << std::endl;
+			return CVector2(0.0f, 0.0f);
+		}
+		else{
+			return CVector2(m_basePositions[0].GetX(),
+							m_basePositions[0].GetY());
+		}
+	}
 	// helper functions
 	 bool Controller1::isObstacleAhead() const {
       /* Check the front rangefinders */

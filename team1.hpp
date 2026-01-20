@@ -18,15 +18,20 @@ namespace argos {
       /* state enum*/
       enum Estate{
          STATE_EXPLORE,
-         STATE_AVOID_OBSTACLE
+         STATE_AVOID_OBSTACLE,
+         STATE_TO_FOOD,
+         STATE_RETURN_TO_BASE
       };
+      CCI_ColoredBlobOmnidirectionalCameraSensor::SReadings m_Readings;
       Estate eState;
-      // parameters for explore state
+      // parameters
       
       UInt32 walkCounter;
       UInt32 currMovementDuration;
 		Real leftWheelSpeed;
 		Real rightWheelSpeed;
+      bool hasFood;
+   
 
 
       // helper functions
@@ -34,9 +39,14 @@ namespace argos {
       CVector2 getRobotPosition() const;
       CRadians getRobotHeading() const;
       void chooseCurrMovement();
+      bool isFoodVisible() const;
+      CVector2 getBasePosition() const;
       
       // state functions
       void randomWalk();
       void avoidObstacle();
+      void moveToFood();
+      void returnToBase();
+
    };
 }
