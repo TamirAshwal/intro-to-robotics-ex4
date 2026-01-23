@@ -41,6 +41,7 @@ namespace argos {
       bool followingEnemy;
       CVector2 enemyWithFoodPos;
       int foodLostCounter;
+         // Unstuck mechanism variables
    
 
 
@@ -59,6 +60,9 @@ namespace argos {
       void GoToEnemyBaseAndCamp();
       void StoreEnemyBasePosition();
       void followEnemy(const CRadians& relativeAngle);
+      bool isTeammateAhead() const;
+   
+CVector2 calculateRepulsiveForce() const;
 
       // state functions
       void randomWalk();

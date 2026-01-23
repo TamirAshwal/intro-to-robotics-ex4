@@ -39,14 +39,13 @@ namespace argos {
 					eState = STATE_TO_FOOD;
 					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
 				}
-
 				else{
 					randomWalk();
 				}
 				break;
 			}
 			case STATE_AVOID_OBSTACLE:{
-				avoidObstacle();
+				avoidObstacle2();
 				break;
 			}
 			case STATE_TO_FOOD:{
@@ -158,55 +157,83 @@ namespace argos {
 		}
 
 	}
-	void Controller1::returnToBase(){
-		    std::cout << "=== In returnToBase ===" << std::endl;
-
-		CVector2 robotPos = getRobotPosition();
-		CRadians robotHeading = getRobotHeading();
-		CVector2 basePosition = getBasePosition();
-		CVector2 toBase = basePosition - robotPos;
-		Real distance = toBase.Length();
-		// check if we reached the base
-		if(distance < 0.08f){
-			std::cout << "Reached base! Dropping food" << std::endl;
-			eState = STATE_EXPLORE;
-			hasFood = false;
-			walkCounter = 0;
-			chooseCurrMovement();
-			return;
-		}
-		// navigate to the base
-		CRadians targetAngle = toBase.Angle();
-		CRadians relativeAngle = (targetAngle - robotHeading).SignedNormalize();
-		 if(isObstacleAhead()){
-        // פשוט התחמק (או תוכל להשתמש ב-Bug2 כאן!)
-        m_pcWheels->SetLinearVelocity(-0.08f, 0.08f);
+	void Controller1::returnToBase() {
+    CVector2 basePos = getBasePosition();
+    CVector2 robotPos = getRobotPosition();
+    CRadians robotHeading = getRobotHeading();
+    
+    // חשב וקטור לבסיס
+    CVector2 toBase = basePos - robotPos;
+    Real distanceToBase = toBase.Length();
+    
+    // בדיקה אם הגענו לבסיס
+    if(distanceToBase < 0.08f) {
+        std::cout << "Reached base! Returning to EXPLORE" << std::endl;
+        hasFood = false;
+        eState = STATE_EXPLORE;
+        walkCounter = 0;
+        chooseCurrMovement();
+        return;
     }
-    // כוון לבסיס
-    else if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
-        // לך ישר
+    
+    // חשב זווית רצויה לבסיס (M-line)
+    CRadians angleToBase = toBase.Angle();
+    CRadians headingError = (angleToBase - robotHeading).SignedNormalize();
+    
+    // עדיפות 1: הימנעות מקירות (Bug2)
+    if(isObstacleAhead()) {
+        m_pcWheels->SetLinearVelocity(-0.04f, 0.04f);
+        return;
+    }
+    
+    // עדיפות 2: הימנעות מ-deadlock עם teammates
+    if(isTeammateAhead()) {
+        if(hasFood) {
+            // יש לי אוכל - תן עדיפות, הגבר מהירות מעט
+            Real speedBoost = 1.05f + 0.05f * m_rng->Uniform(CRange<Real>(0.0f, 1.0f));
+            if(Abs(headingError.GetValue()) < CRadians::PI_OVER_FOUR.GetValue()) {
+                m_pcWheels->SetLinearVelocity(0.157f * speedBoost, 0.157f * speedBoost);
+            } else {
+                // עדיין צריך לתקן כיוון
+                if(headingError.GetValue() > 0) {
+                    m_pcWheels->SetLinearVelocity(-0.1f, 0.1f);
+                } else {
+                    m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
+                }
+            }
+        } else {
+            // אין לי אוכל - נסוג הצידה עם offset רנדומלי
+            Real randomOffset = m_rng->Uniform(CRange<Real>(-0.4f, 0.4f));
+            CRadians offsetAngle = headingError + CRadians(randomOffset);
+            
+            // האט וזוז הצידה
+            if(offsetAngle.GetValue() > 0) {
+                m_pcWheels->SetLinearVelocity(-0.08f, 0.12f);
+            } else {
+                m_pcWheels->SetLinearVelocity(0.12f, -0.08f);
+            }
+            
+            // לפעמים עצור לגמרי (10% סיכוי)
+            if(m_rng->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.1f) {
+                m_pcWheels->SetLinearVelocity(0.0f, 0.0f);
+            }
+        }
+        return;
+    }
+    
+    // עדיפות 3: ניווט רגיל לבסיס (Bug2 M-line)
+    if(Abs(headingError.GetValue()) < CRadians::PI_OVER_SIX.GetValue()) {
+        // כיוון נכון - תזוז קדימה
         m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+    } else if(headingError.GetValue() > 0) {
+        // צריך לפנות שמאלה
+        m_pcWheels->SetLinearVelocity(-0.1f, 0.1f);
+    } else {
+        // צריך לפנות ימינה
+        m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
     }
-    else if(relativeAngle.GetValue() > 0){
-        // פנה שמאלה
-        m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
-    }
-    else{
-        // פנה ימינה
-        m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
-    }
-
-	}
-
-	void Controller1::avoidObstacle(){
-		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); 
-		if(!isObstacleAhead()){
-			std::cout << "Path clear! Returning to EXPLORE" << std::endl;
-			eState = STATE_EXPLORE;
-			walkCounter = 0; 
-			chooseCurrMovement(); 
-		}
-	}
+}
+		
 
 	bool Controller1::isFoodVisible() const{
 		for(const auto& blob : m_Readings.BlobList){
@@ -290,6 +317,19 @@ namespace argos {
 
 		return CRadians::PI;
 	}
+	bool Controller1::isTeammateAhead() const {
+    for(const auto& blob : m_Readings.BlobList) {
+        if(blob->Color == CColor::BLUE) {  // כחול = teammate
+            CRadians angle = blob->Angle.SignedNormalize();
+            // בדיקה אם הרובוט מלפנים (בטווח 30 מעלות) וקרוב
+            if(Abs(angle.GetValue()) < CRadians::PI_OVER_SIX.GetValue() && 
+               blob->Distance < 50.0f) {  // 50 ס"מ במערכת המצלמה
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 	//overides!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	// improved move to food that don't follow robots
@@ -340,10 +380,12 @@ namespace argos {
 	void Controller1::avoidObstacle2(){
 		CRadians angle2Team = angle2TeamAhead();
 		if(angle2Team != CRadians::PI){ //only checks if angel2Team exsistes, it will never be pi
-			if (hasFood)
+			if (hasFood){
 				return;
-			else
+			}
+			else{
 				m_pcWheels->SetLinearVelocity(0.145f - 0.01f * angle2Team.GetValue(), 0.145f + 0.01f * angle2Team.GetValue()); 
+			}
 		}	
 		else{
 			m_pcWheels->SetLinearVelocity(-0.04f, 0.04f); 
@@ -441,6 +483,7 @@ namespace argos {
 			m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
 		}
 	}
+	
 
 	void Controller1::block() {
 
@@ -495,10 +538,10 @@ namespace argos {
 		enemyWithFoodPos = CVector2(minDistance, relativeAngle);
 		followEnemy(relativeAngle);
 	}
+
 	/****************************************/
 	/****************************************/
 
 	REGISTER_CONTROLLER(Controller1, "controller1");
 
 }
-
