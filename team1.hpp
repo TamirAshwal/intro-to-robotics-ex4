@@ -42,7 +42,11 @@ namespace argos {
       CVector2 enemyWithFoodPos;
       int foodLostCounter;
          // Unstuck mechanism variables
-   
+     bool m_bFacingBase = false;        
+   CRadians m_cReturnLineHeading;
+
+     
+    
 
 
       // helper functions
@@ -62,7 +66,7 @@ namespace argos {
       void followEnemy(const CRadians& relativeAngle);
       bool isTeammateAhead() const;
    
-CVector2 calculateRepulsiveForce() const;
+      
 
       // state functions
       void randomWalk();
