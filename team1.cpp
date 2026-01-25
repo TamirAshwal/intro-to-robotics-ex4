@@ -18,115 +18,34 @@ namespace argos {
 		leftWheelSpeed = 0.0f;
 		rightWheelSpeed = 0.0f;
 		hasFood = false;
+
+		//blocking varubels
+		enemyBaseKnown = false;
+		followingEnemy = false;
+		
+		//interception varubels
+		lastAngleToTarget = 0;
+		filterdError = 0;
+      	interception_alpha = 0.6;
+		interception_K = 5.0f;
+		isRobotCW = true;
+
+		blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		
 		chooseCurrMovement();
-		// --- אתחול מנגנון תקיעות ---
-    m_lastStuckPosition = getRobotPosition();
-    m_stuckTimer = 0;
-    m_unstickStepCounter = 0;
-    m_isUnsticking = false;
-	m_proximityStuckTimer = 0;
 
 	}
 
 	void Controller1::ControlStep() {
 		/* Your ControlStep code goes here*/
 		m_Readings = m_pcCamera->GetReadings();
-
-   // 1. אם אנחנו כבר באמצע תמרון חילוץ, נמשיך אותו עד הסוף
-		if (m_isUnsticking) {
-			// std::cout << "Unsticking maneuver step " << m_unstickStepCounter << std::endl;
-			m_unstickStepCounter++;
-			
-			// שלב א: רוורס למשך 20 צעדים
-			if (m_unstickStepCounter < 20) {
-				m_pcWheels->SetLinearVelocity(-0.1f, -0.1f); // הגברתי טיפה מהירות רוורס
-			}
-			// שלב ב: סיבוב אגרסיבי למשך 30 צעדים
-			else if (m_unstickStepCounter < 50) {
-				m_pcWheels->SetLinearVelocity(0.05f, -0.05f); 
-			}
-			// סיום התמרון - כאן התיקון הקריטי לאוכל!
-			else {
-				m_isUnsticking = false;
-				m_stuckTimer = 0;
-                m_proximityStuckTimer = 0; // איפוס מונה קרבה
-				m_lastStuckPosition = getRobotPosition(); 
-
-                // --- תיקון לבעיה 2: חישוב מסלול מחדש אם יש אוכל ---
-                if (hasFood) {
-                    std::cout << "Unstuck with food! Recalculating path to base." << std::endl;
-                    eState = STATE_RETURN_TO_BASE;
-                    m_bFacingBase = false; // זה יגרום לחישוב מחדש של ה-M-Line מהמיקום החדש
-                }
-                else {
-				    // אם אין אוכל, חוזרים לחקור
-				    eState = STATE_EXPLORE; 
-				    chooseCurrMovement(); 
-                }
-			}
-			return; // אם בחילוץ, לא עושים כלום אחר
-		}
-
-		// 2. בדיקה האם נתקענו? (Proximity Check + Position Check)
-		
-        bool isStuck = false;
-
-        // --- בדיקה א': האם יש רובוט דבוק אלינו? ---
-        bool robotClose = false;
-        for(const auto& blob : m_Readings.BlobList) {
-            // אם זה רובוט (כחול או אדום)
-            if (blob->Color == CColor::BLUE || blob->Color == CColor::RED) {
-                // אם הוא קרוב מאוד (פחות מ-20 ס"מ) וממש מלפנים
-                if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
-                    robotClose = true;
-					std::cout << "Robot too close! Distance: " << blob->Distance << " Angle: " << blob->Angle << std::endl;
-                    break;
-                }
-            }
-        }
-
-        if (robotClose) {
-            m_proximityStuckTimer++;
-        } else {
-            if(m_proximityStuckTimer > 0) m_proximityStuckTimer--;
-        }
-
-        // אם רובוט חוסם אותנו במשך כ-3 שניות (30 צעדים)
-        if (m_proximityStuckTimer > 30) {
-            std::cout << "PROXIMITY STUCK DETECTED! (Blocked by robot)" << std::endl;
-            isStuck = true;
-        }
-
-
-        // --- בדיקה ב': האם המיקום לא משתנה? (הקוד הקודם) ---
-		CVector2 currentPos = getRobotPosition();
-		Real distMoved = (currentPos - m_lastStuckPosition).Length();
-
-		if (distMoved < STUCK_THRESHOLD_DIST) {
-			m_stuckTimer++;
-		} else {
-			m_stuckTimer = 0;
-			m_lastStuckPosition = currentPos;
-		}
-
-		if (m_stuckTimer > STUCK_THRESHOLD_TIME) {
-			std::cout << "POSITION STUCK DETECTED!" << std::endl;
-            isStuck = true;
-		}
-
-        // --- הפעלת החילוץ אם אחת הבדיקות נכשלת ---
-        if (isStuck) {
-            m_isUnsticking = true;
-			m_unstickStepCounter = 0;
-			return;
-        }
 		// start of switch case
 		switch (eState){
 			case STATE_EXPLORE:{
 				if(isObstacleAhead()){
 					eState = STATE_AVOID_OBSTACLE;
 				}
-				else if(!enemyWithFoodPossitions().empty()){
+				else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
 					eState = STATE_BLOCK;
 					std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
 				}
@@ -134,13 +53,14 @@ namespace argos {
 					eState = STATE_TO_FOOD;
 					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
 				}
+
 				else{
 					randomWalk();
 				}
 				break;
 			}
 			case STATE_AVOID_OBSTACLE:{
-				avoidObstacle2();
+				avoidObstacle();
 				break;
 			}
 			case STATE_TO_FOOD:{
@@ -178,19 +98,19 @@ namespace argos {
 			currMovementDuration = 50 +  m_rng->Uniform(CRange<UInt32>(0,50));
 			leftWheelSpeed = 0.157f;
 			rightWheelSpeed = 0.157f;
-			
+			std::cout << "Moving straight" << std::endl;
 		}
 		else if(movement < 0.68f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = -0.05f;
 			rightWheelSpeed = 0.05f;
-			
+			std::cout << "Rotating left in place" << std::endl;
 		}
 		else if(movement < 0.86f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = 0.05f;
 			rightWheelSpeed = -0.05f;
-			
+			std::cout << "Rotating right in place" << std::endl;
 		}
 		else{
 			currMovementDuration = 40 +  m_rng->Uniform(CRange<UInt32>(0,40));
@@ -199,95 +119,108 @@ namespace argos {
 				// מעגל שמאלה
 				leftWheelSpeed = 0.157f * fSpeedRatio;
 				rightWheelSpeed = 0.157f;
-				
+				std::cout << "Circular movement left" << std::endl;
 			} else {
 				// מעגל ימינה
 				leftWheelSpeed = 0.157f;
 				rightWheelSpeed = 0.157f * fSpeedRatio;
-				
+				std::cout << "Circular movement right" << std::endl;
 			}
 		}
 	}
-	
-	void Controller1::returnToBase() {
-    // שלב 1: בדיקת הגעה לבסיס (ללא שינוי)
-    CVector2 currPos = getRobotPosition();
-    CVector2 basePos = getBasePosition();
-    Real distanceToBase = (currPos - basePos).Length();
-
-    if(distanceToBase < 0.10f){ // הגדלתי טיפה ל-0.10 שיהיה קל יותר לפגוע
-        m_pcWheels->SetLinearVelocity(0.0f, 0.0f);
-        hasFood = false;
-        m_carriedFoodId = std::nullopt;
-        std::cout << "Dropped food at base! Back to Explore." << std::endl;
-        eState = STATE_EXPLORE;
-        walkCounter = 0;
-        chooseCurrMovement();
-        return;
-    }
-
-    // --- שלב א': סיבוב במקום ---
-    if (!m_bFacingBase) {
-        
-        // חישוב וקטור לבסיס
-        CVector2 toBase = basePos - currPos;
-        
-        // חישוב הזווית הרצויה והנוכחית
-        CRadians targetHeading = toBase.Angle();
-        CRadians currentHeading = getRobotHeading();
-        
-        // תיקון חשוב: חיסור רגיל ואז SignedNormalize לתוצאה
-        // זה מבטיח שנקבל זווית בין -PI ל-PI (הדרך הקצרה)
-        CRadians error = (targetHeading - currentHeading).SignedNormalize();
-        
-        // הגדרת סף דיוק (קצת יותר סלחני)
-        const Real epsilon = 0.05f; // כ-3 מעלות
-
-        if (Abs(error.GetValue()) > epsilon) {
-            std::cout << "readjust the heading... Error: " << error.GetValue() << std::endl;
-            
-            // --- הפתרון לבעיית הרעידות ---
-            // במקום מהירות קבועה, המהירות תלויה בגודל השגיאה.
-            // ככל שמתקרבים - המהירות יורדת.
-            Real speed = error.GetValue() * 0.5f; 
-            
-            // הגבלת מהירות מינימלית ומקסימלית כדי שלא ייתקע או ישתולל
-            if(speed > 0.2f) speed = 0.2f;
-            if(speed < -0.2f) speed = -0.2f;
-            // אם המהירות ממש נמוכה אבל עדיין לא הגענו, תן דחיפה קטנה
-            if(speed > 0.0f && speed < 0.02f) speed = 0.02f;
-            if(speed < 0.0f && speed > -0.02f) speed = -0.02f;
-
-            // סיבוב במקום (גלגלים הפוכים)
-            m_pcWheels->SetLinearVelocity(-speed, speed);
-        } 
-        else {
-            // הגענו לזווית!
-            m_bFacingBase = true;
-            m_cReturnLineHeading = targetHeading; // שמירת ה-M-Line
-            
-            m_pcWheels->SetLinearVelocity(0.0f, 0.0f); // עצירה מוחלטת לפני תחילת תנועה
-            std::cout << "Aligned with base! Starting M-Line." << std::endl;
-        }
-        return;
-    }
-
-    // --- שלב ב': נסיעה על ה-M-Line ---
-    else {
-        CRadians currHeading = getRobotHeading();
-        
-        // חישוב שגיאה ביחס לקו המקורי ששמרנו
-        CRadians error = (m_cReturnLineHeading - currHeading).SignedNormalize();
-        
-        // כאן משתמשים בתיקון עדין תוך כדי נסיעה קדימה (כמו ב-Bug2)
-        const Real K_P = 0.5f; // מקדם תיקון
-        Real turnCorrection = error.GetValue() * K_P;
-        
-        // מהירות בסיס קדימה + תיקון
-        m_pcWheels->SetLinearVelocity(0.15f - turnCorrection, 0.15f + turnCorrection);
-    }
-}
+	// we saw at least one food so we go to it
+	void Controller1::moveToFood(){
+		Real minDistance = std::numeric_limits<Real>::max();
+		CRadians relativeAngle;
+		for(const auto& blob : m_Readings.BlobList){
+			if(blob->Color == CColor::GRAY80){
+				if(blob->Distance < minDistance){
+					minDistance = blob->Distance;
+					relativeAngle = blob->Angle;
+					relativeAngle = blob->Angle.SignedNormalize();
+				}
+			}
+		}
+		if(minDistance >= std::numeric_limits<Real>::max()){
+			std::cout << "Lost sight of food, returning to explore" << std::endl;
+			eState = STATE_EXPLORE;
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// check if we got to the food
+		if(minDistance < 0.15f){
+			std::cout << "Reached food! Returning to base" << std::endl;
+			hasFood = true;
+			eState = STATE_RETURN_TO_BASE;
 		
+			return;
+		}
+		
+		// move the robot towards the food
+		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+			
+			m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+		}
+		else if(relativeAngle.GetValue() > 0){
+			
+			m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
+		}
+		else{
+		
+			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
+		}
+
+	}
+	void Controller1::returnToBase(){
+		    std::cout << "=== In returnToBase ===" << std::endl;
+
+		CVector2 robotPos = getRobotPosition();
+		CRadians robotHeading = getRobotHeading();
+		CVector2 basePosition = getBasePosition();
+		CVector2 toBase = basePosition - robotPos;
+		Real distance = toBase.Length();
+		// check if we reached the base
+		if(distance < 0.08f){
+			std::cout << "Reached base! Dropping food" << std::endl;
+			eState = STATE_EXPLORE;
+			hasFood = false;
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// navigate to the base
+		CRadians targetAngle = toBase.Angle();
+		CRadians relativeAngle = (targetAngle - robotHeading).SignedNormalize();
+		 if(isObstacleAhead()){
+        // פשוט התחמק (או תוכל להשתמש ב-Bug2 כאן!)
+        m_pcWheels->SetLinearVelocity(-0.08f, 0.08f);
+    }
+    // כוון לבסיס
+    else if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+        // לך ישר
+        m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+    }
+    else if(relativeAngle.GetValue() > 0){
+        // פנה שמאלה
+        m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
+    }
+    else{
+        // פנה ימינה
+        m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
+    }
+
+	}
+
+	void Controller1::avoidObstacle(){
+		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); 
+		if(!isObstacleAhead()){
+			std::cout << "Path clear! Returning to EXPLORE" << std::endl;
+			eState = STATE_EXPLORE;
+			walkCounter = 0; 
+			chooseCurrMovement(); 
+		}
+	}
 
 	bool Controller1::isFoodVisible() const{
 		for(const auto& blob : m_Readings.BlobList){
@@ -334,21 +267,18 @@ namespace argos {
       CRadians cHeading, cPitch, cRoll;
       const CCI_PositioningSensor::SReading& reading = m_pcPositioning->GetReading();
       reading.Orientation.ToEulerAngles(cHeading, cPitch, cRoll);
-      return cHeading;
+      return cHeading.UnsignedNormalize();
    }
 
-   //Raz's addition
-   //new!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   //returns all the positions of all the food that is not taken or about to be taken
 	std::vector<CVector2> Controller1::getFoodPositions() const{
 		std::vector<CVector2> foodPositions;
 
 		for(const auto& foodblob : m_Readings.BlobList){
-			if(foodblob->Color == CColor::GRAY80 ){
+			if(foodblob->Color == CColor::GRAY80){
 				bool taken = false;
 				
 				for(const auto& robotblob : m_Readings.BlobList){
-					if((robotblob->Color == CColor::BLUE || robotblob->Color == CColor::RED) && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
+					if(foodblob->Color != CColor::GRAY80 && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
 						taken = true;
 						break;
 					}	
@@ -364,26 +294,13 @@ namespace argos {
 
 	CRadians Controller1::angle2TeamAhead() const{
 		for(const auto& blob : m_Readings.BlobList){
-			if(blob->Color == CColor::BLUE && blob->Angle.SignedNormalize() < CRadians::PI/6){
+			if(blob->Color == m_teamColor && blob->Angle.SignedNormalize() < CRadians::PI/6){
 				return blob->Angle.SignedNormalize();
 			}
 		}
 
 		return CRadians::PI;
 	}
-	bool Controller1::isTeammateAhead() const {
-    for(const auto& blob : m_Readings.BlobList) {
-        if(blob->Color == CColor::BLUE) {  // כחול = teammate
-            CRadians angle = blob->Angle.SignedNormalize();
-            // בדיקה אם הרובוט מלפנים (בטווח 30 מעלות) וקרוב
-            if(Abs(angle.GetValue()) < CRadians::PI_OVER_SIX.GetValue() && 
-               blob->Distance < 50.0f) {  // 50 ס"מ במערכת המצלמה
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
 	//overides!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	// improved move to food that don't follow robots
@@ -411,7 +328,6 @@ namespace argos {
 			std::cout << "Reached food! Returning to base" << std::endl;
 			hasFood = true;
 			eState = STATE_RETURN_TO_BASE;
-			m_bFacingBase = false;
 		
 			return;
 		}
@@ -435,12 +351,10 @@ namespace argos {
 	void Controller1::avoidObstacle2(){
 		CRadians angle2Team = angle2TeamAhead();
 		if(angle2Team != CRadians::PI){ //only checks if angel2Team exsistes, it will never be pi
-			if (hasFood){
+			if (hasFood)
 				return;
-			}
-			else{
+			else
 				m_pcWheels->SetLinearVelocity(0.145f - 0.01f * angle2Team.GetValue(), 0.145f + 0.01f * angle2Team.GetValue()); 
-			}
 		}	
 		else{
 			m_pcWheels->SetLinearVelocity(-0.04f, 0.04f); 
@@ -455,30 +369,30 @@ namespace argos {
 	}
 
 	//blocking effort
-	//blocking effort
-	std::vector<CVector2> Controller1::enemyWithFoodPossitions() const {
-		// std::vector<CVector2> positions;
+	
+	CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
+		CVector2 robotPos = getRobotPosition();
+		CRadians robotHeading = getRobotHeading();
 
-		// for(const auto& enemyblob : m_Readings.BlobList) {
-		// 	if(enemyblob->Color == CColor::RED)
-		// 		for(const auto& foodblob : m_Readings.BlobList) {
-		// 			if(foodblob->Color == CColor::GRAY80)
-		// 				positions.emplace_back(enemyblob->Distance, enemyblob->Angle);
-		// 		}
-		// }
-		// return positions;
+		CVector2 blobRel(blob.Length()* Cos(blob.Angle()),blob.Length() * Sin(blob.Angle()));
+
+		blobRel.Rotate(robotHeading);
+
+		return robotPos + blobRel;
+	}
+
+
+	std::vector<CVector2> Controller1::enemyWithFoodPossitions() const {
 
 		std::vector<CVector2> positions;
 
 		for(const auto& enemy : m_Readings.BlobList) {
-			if(enemy->Color != CColor::RED) continue;
+			if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
 
 			for(const auto& food : m_Readings.BlobList) {
 				if(food->Color != CColor::GRAY80) continue;
 
-				CRadians dAngle =(enemy->Angle - food->Angle).UnsignedNormalize();
-
-				if(dAngle < CRadians::PI / 12) {
+				if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
 					positions.emplace_back(enemy->Distance, enemy->Angle);
 					break;
 				}
@@ -487,9 +401,9 @@ namespace argos {
 		return positions;
 	}
 
-	void Controller1::followEnemy(const CRadians& relativeAngle) {
-		// move the robot towards the enemy
-		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+	void Controller1::followEnemy(const CRadians relativeAngle) {
+		//good code **********************************************************8
+		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_SIX.GetValue() && !isObstacleAhead()){
 			
 			m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
 		}
@@ -501,102 +415,112 @@ namespace argos {
 		
 			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
 		}
+		//********************************************************************88888 */
+
+		//// bad interceptoin code **************************
+		// CVector2 robotPos = getRobotPosition();
+		// CRadians robotHeading = getRobotHeading();
+		// CRadians angle = relativeAngle;
+		
+		// float angleToTarget = angle.SignedNormalize().GetValue();
+		// float angleError = CRadians(angleToTarget - lastAngleToTarget).SignedNormalize().GetValue();
+		// lastAngleToTarget = angleToTarget;
+
+		// filterdError = interception_alpha * angleError + (1-interception_alpha) * filterdError;
+
+		// m_pcWheels->SetLinearVelocity(0.25f - interception_K * filterdError, 0.25f + interception_K * filterdError);
 	}
 
-	void Controller1::StoreEnemyBasePosition() {
-		enemyBasePos = enemyWithFoodPos;
-		enemyBaseKnown = true;
+	void Controller1::enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal){
+		CVector2 robotPos = getRobotPosition();
+		CRadians robotHeading = getRobotHeading();
 
-		std::cout << "Enemy base discovered at "
-				<< enemyBasePos << std::endl;
+		// --- Target-centered angles ---
+		CVector2 vE = enemyPos - enemyGoal;
+		CVector2 vR = robotPos - enemyGoal;
+
+		CRadians angE = vE.Angle();
+		CRadians angR = vR.Angle();
+
+		CRadians deltaAng = (angE - angR).SignedNormalize();
+
+		float speed = ((deltaAng * isRobotCW).GetValue() > 0)? 1.2f : -1.2f;
+
+		m_pcWheels->SetLinearVelocity(speed , speed);
 	}
 
-	void Controller1::GoToEnemyBaseAndCamp() {
-		const CVector3& pos3D = m_pcPositioning->GetReading().Position;
-		CVector2 robotPos(pos3D.GetX(), pos3D.GetY());
+	void Controller1::turn4defence(CVector2 enemyBasePos){
+		CVector2 robotPos = getRobotPosition();
+		CRadians robotHeading = getRobotHeading();
 
-		CVector2 toBase = enemyBasePos - robotPos;
-		CRadians targetAngle = toBase.Angle();
+		CVector2 toTarget =  enemyBasePos - robotPos;
+		CRadians headingErrPlus = CRadians(toTarget.Angle() + CRadians::PI_OVER_TWO - robotHeading).SignedNormalize();
+		CRadians headingErrMinus = CRadians(toTarget.Angle() - CRadians::PI_OVER_TWO - robotHeading).SignedNormalize();
 
-		CRadians heading, pitch, roll;
-		m_pcPositioning->GetReading().Orientation.ToEulerAngles(heading, pitch, roll);
-
-		CRadians diff = (targetAngle - heading).SignedNormalize();
-
-		if(toBase.Length() < 0.15f) {
-			m_pcWheels->SetLinearVelocity(0.0f, 0.0f); // CAMP
-			return;
+		if(headingErrPlus < headingErrMinus && headingErrPlus > CRadians(0.1)){
+			m_pcWheels->SetLinearVelocity(-0.1, 0.1);
+			isRobotCW = -1;
 		}
-
-		if(Abs(diff) < CRadians::PI_OVER_SIX) {
-			m_pcWheels->SetLinearVelocity(0.15f, 0.15f);
+		else if ( headingErrMinus < headingErrPlus && headingErrMinus > CRadians(0.1))
+		{
+			m_pcWheels->SetLinearVelocity(0.1, -0.1);
+			isRobotCW = 1;
 		}
-		else if(diff.GetValue() > 0) {
-			m_pcWheels->SetLinearVelocity(-0.1f, 0.1f);
-		}
-		else {
-			m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
+		else{
+			m_pcWheels->SetLinearVelocity(0, 0);
+			isRobotCW = (headingErrPlus < headingErrMinus)? -1 : 1;
 		}
 	}
-	
 
 	void Controller1::block() {
-
-		if(enemyBaseKnown) {
-			GoToEnemyBaseAndCamp();
-			return;
-		}
-
-		if(enemyWithFoodPossitions().empty()) {
-			for(const auto& enemyblob : m_Readings.BlobList) {
-				if(enemyblob->Color == CColor::RED) {
-					if((CVector2(enemyblob->Distance, enemyblob->Angle) - enemyWithFoodPos).Length() < 0.5f){
-					// if(foodLostCounter >= 5){
-						std::cout << "found emeny base!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-						StoreEnemyBasePosition();
-						followingEnemy = false;
-						GoToEnemyBaseAndCamp();
-					}
-					break;
-				}
-			}
-			followingEnemy = false;
-			// foodLostCounter = 0;
-			eState = STATE_EXPLORE;
-			return;
-
-		// 	if(enemyStillVisible) {
-        //     foodLostCounter++;
-        // } else {
-        //     foodLostCounter = 0;
-        // }
-
-        // if(foodLostCounter >= FOOD_LOST_CONFIRM_STEPS) {
-        //     std::cout << "Enemy base detected!" << std::endl;
-        //     StoreEnemyBasePosition();
-        //     GoToEnemyBaseAndCamp();
-        //     return;
-        // }
-		}
 
 		Real minDistance = std::numeric_limits<Real>::max();
 		CRadians relativeAngle;
 		
 		std::vector<CVector2> enemyPositions = enemyWithFoodPossitions();
-		followingEnemy = true;
+
+		if(enemyBaseKnown && enemyPositions.empty()) {
+				turn4defence(enemyBasePos);
+				return;
+		}
+
+		if(enemyPositions.empty() && followingEnemy) {
+			for(const auto& enemy : m_Readings.BlobList) {
+				if(enemy->Color != CColor::GRAY80 && enemy->Color != m_teamColor) {
+					if((relToAbsPosition(CVector2(enemy->Distance/100, enemy->Angle)) - enemyWithFoodPos).Length() < 0.5f){
+						enemyBasePos = enemyWithFoodPos;
+						enemyBaseKnown = true; 
+						std::cout << "found emeny base at:" << enemyBasePos.GetX() << "," << enemyBasePos.GetY() << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+						turn4defence(enemyBasePos); //turn for defence
+						return;
+					}
+				}
+			}
+			followingEnemy = false;
+			eState = STATE_EXPLORE;
+			return;
+		}
+
 		for(const auto& enemy : enemyPositions){
 			if(enemy.Length() < minDistance){
 				minDistance = enemy.Length();
-				relativeAngle = enemy.Angle().SignedNormalize();
+				relativeAngle = enemy.Angle();
 			}
 		}
-		enemyWithFoodPos = CVector2(minDistance, relativeAngle);
-		followEnemy(relativeAngle);
+		enemyWithFoodPos = relToAbsPosition(CVector2(minDistance/100, relativeAngle));
+		if(enemyBaseKnown){
+			turn4defence(enemyBasePos);
+			enemyBlocking(enemyWithFoodPos, enemyBasePos);
+		}
+		else{
+			followingEnemy = true;
+			followEnemy(relativeAngle);
+		}
 	}
-
 	/****************************************/
 	/****************************************/
 
 	REGISTER_CONTROLLER(Controller1, "controller1");
 
 }
+
