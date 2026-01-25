@@ -24,16 +24,15 @@ namespace argos {
 	}
 
 	void controller2::ControlStep() {
-		/* Your ControlStep code goes here*/
+		//* Your ControlStep code goes here*/
 		m_Readings = m_pcCamera->GetReadings();
 		// start of switch case
 		switch (eState){
 			case STATE_EXPLORE:{
 				if(isObstacleAhead()){
 					eState = STATE_AVOID_OBSTACLE;
-
 				}
-				else if(isFoodVisible() && !hasFood){
+				else if(!getFoodPositions().empty() && !hasFood){
 					eState = STATE_TO_FOOD;
 					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
 				}
@@ -48,7 +47,7 @@ namespace argos {
 				break;
 			}
 			case STATE_TO_FOOD:{
-				moveToFood();
+				moveToFood2();
 				break;
 
 			}
@@ -248,6 +247,70 @@ namespace argos {
       return cHeading;
    }
 
+   std::vector<CVector2> controller2::getFoodPositions() const{
+		std::vector<CVector2> foodPositions;
+
+		for(const auto& foodblob : m_Readings.BlobList){
+			if(foodblob->Color == CColor::GRAY80 ){
+				bool taken = false;
+				
+				for(const auto& robotblob : m_Readings.BlobList){
+					if((robotblob->Color == CColor::BLUE || robotblob->Color == CColor::RED) && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
+						taken = true;
+						break;
+					}	
+				}
+
+				if(!taken)
+					foodPositions.emplace_back(foodblob->Distance, foodblob->Angle); 
+			}
+		}
+
+		return foodPositions;
+	}
+
+	void controller2::moveToFood2(){
+		Real minDistance = std::numeric_limits<Real>::max();
+		CRadians relativeAngle;
+		
+		std::vector<CVector2> foodPositions = getFoodPositions();
+		for(const auto& food : foodPositions){
+			if(food.Length() < minDistance){
+				minDistance = food.Length();
+				relativeAngle = food.Angle().SignedNormalize();
+			}
+		}
+
+		if(minDistance >= std::numeric_limits<Real>::max()){
+			std::cout << "Lost sight of food, returning to explore" << std::endl;
+			eState = STATE_EXPLORE;
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// check if we got to the food
+		if(minDistance < 0.15f){
+			std::cout << "Reached food! Returning to base" << std::endl;
+			hasFood = true;
+			eState = STATE_RETURN_TO_BASE;
+		
+			return;
+		}
+		
+		// move the robot towards the food
+		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
+			
+			m_pcWheels->SetLinearVelocity(0.157f, 0.157f);
+		}
+		else if(relativeAngle.GetValue() > 0){
+			
+			m_pcWheels->SetLinearVelocity(-0.157f, 0.157f);
+		}
+		else{
+		
+			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
+		}
+	}
 	/****************************************/
 	/****************************************/
 
