@@ -19,12 +19,107 @@ namespace argos {
 		rightWheelSpeed = 0.0f;
 		hasFood = false;
 		chooseCurrMovement();
+		// --- אתחול מנגנון תקיעות ---
+    m_lastStuckPosition = getRobotPosition();
+    m_stuckTimer = 0;
+    m_unstickStepCounter = 0;
+    m_isUnsticking = false;
+	m_proximityStuckTimer = 0;
 
 	}
 
 	void Controller1::ControlStep() {
 		/* Your ControlStep code goes here*/
 		m_Readings = m_pcCamera->GetReadings();
+
+   // 1. אם אנחנו כבר באמצע תמרון חילוץ, נמשיך אותו עד הסוף
+		if (m_isUnsticking) {
+			// std::cout << "Unsticking maneuver step " << m_unstickStepCounter << std::endl;
+			m_unstickStepCounter++;
+			
+			// שלב א: רוורס למשך 20 צעדים
+			if (m_unstickStepCounter < 20) {
+				m_pcWheels->SetLinearVelocity(-0.1f, -0.1f); // הגברתי טיפה מהירות רוורס
+			}
+			// שלב ב: סיבוב אגרסיבי למשך 30 צעדים
+			else if (m_unstickStepCounter < 50) {
+				m_pcWheels->SetLinearVelocity(0.05f, -0.05f); 
+			}
+			// סיום התמרון - כאן התיקון הקריטי לאוכל!
+			else {
+				m_isUnsticking = false;
+				m_stuckTimer = 0;
+                m_proximityStuckTimer = 0; // איפוס מונה קרבה
+				m_lastStuckPosition = getRobotPosition(); 
+
+                // --- תיקון לבעיה 2: חישוב מסלול מחדש אם יש אוכל ---
+                if (hasFood) {
+                    std::cout << "Unstuck with food! Recalculating path to base." << std::endl;
+                    eState = STATE_RETURN_TO_BASE;
+                    m_bFacingBase = false; // זה יגרום לחישוב מחדש של ה-M-Line מהמיקום החדש
+                }
+                else {
+				    // אם אין אוכל, חוזרים לחקור
+				    eState = STATE_EXPLORE; 
+				    chooseCurrMovement(); 
+                }
+			}
+			return; // אם בחילוץ, לא עושים כלום אחר
+		}
+
+		// 2. בדיקה האם נתקענו? (Proximity Check + Position Check)
+		
+        bool isStuck = false;
+
+        // --- בדיקה א': האם יש רובוט דבוק אלינו? ---
+        bool robotClose = false;
+        for(const auto& blob : m_Readings.BlobList) {
+            // אם זה רובוט (כחול או אדום)
+            if (blob->Color == CColor::BLUE || blob->Color == CColor::RED) {
+                // אם הוא קרוב מאוד (פחות מ-20 ס"מ) וממש מלפנים
+                if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
+                    robotClose = true;
+					std::cout << "Robot too close! Distance: " << blob->Distance << " Angle: " << blob->Angle << std::endl;
+                    break;
+                }
+            }
+        }
+
+        if (robotClose) {
+            m_proximityStuckTimer++;
+        } else {
+            if(m_proximityStuckTimer > 0) m_proximityStuckTimer--;
+        }
+
+        // אם רובוט חוסם אותנו במשך כ-3 שניות (30 צעדים)
+        if (m_proximityStuckTimer > 30) {
+            std::cout << "PROXIMITY STUCK DETECTED! (Blocked by robot)" << std::endl;
+            isStuck = true;
+        }
+
+
+        // --- בדיקה ב': האם המיקום לא משתנה? (הקוד הקודם) ---
+		CVector2 currentPos = getRobotPosition();
+		Real distMoved = (currentPos - m_lastStuckPosition).Length();
+
+		if (distMoved < STUCK_THRESHOLD_DIST) {
+			m_stuckTimer++;
+		} else {
+			m_stuckTimer = 0;
+			m_lastStuckPosition = currentPos;
+		}
+
+		if (m_stuckTimer > STUCK_THRESHOLD_TIME) {
+			std::cout << "POSITION STUCK DETECTED!" << std::endl;
+            isStuck = true;
+		}
+
+        // --- הפעלת החילוץ אם אחת הבדיקות נכשלת ---
+        if (isStuck) {
+            m_isUnsticking = true;
+			m_unstickStepCounter = 0;
+			return;
+        }
 		// start of switch case
 		switch (eState){
 			case STATE_EXPLORE:{

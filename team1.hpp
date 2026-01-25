@@ -27,6 +27,15 @@ namespace argos {
       CCI_ColoredBlobOmnidirectionalCameraSensor::SReadings m_Readings;
       Estate eState;
       // parameters
+      CVector2 m_lastStuckPosition;     // המיקום בבדיקה האחרונה
+    UInt32 m_stuckTimer;              // כמה זמן אנחנו באותו מקום
+    UInt32 m_unstickStepCounter;      // מונה לביצוע תמרון החילוץ
+    bool m_isUnsticking;              // האם אנחנו כרגע בתמרון חילוץ?
+
+    // קבועים (אפשר לשחק איתם)
+    const UInt32 STUCK_THRESHOLD_TIME = 50;  // אחרי 50 צעדים (כ-5 שניות) נחשב כתקועים
+    const Real STUCK_THRESHOLD_DIST = 0.02f; // אם זזנו פחות מ-2 ס"מ
+    UInt32 m_proximityStuckTimer;
       
       UInt32 walkCounter;
       UInt32 currMovementDuration;
