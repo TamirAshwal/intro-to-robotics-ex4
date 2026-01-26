@@ -30,7 +30,7 @@ namespace argos {
 		interception_K = 5.0f;
 		isRobotCW = true;
 
-		blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		blockMode = true;//CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
 		
 		chooseCurrMovement();
 
@@ -47,7 +47,7 @@ namespace argos {
 				}
 				else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
 					eState = STATE_BLOCK;
-					std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
+					std::cout << "enemy with Food detected! Switching to Block state!" << std::endl;
 				}
 				else if(!getFoodPositions().empty() && !hasFood){
 					eState = STATE_TO_FOOD;
@@ -278,7 +278,7 @@ namespace argos {
 				bool taken = false;
 				
 				for(const auto& robotblob : m_Readings.BlobList){
-					if(foodblob->Color != CColor::GRAY80 && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
+					if(robotblob->Color != CColor::GRAY80 && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
 						taken = true;
 						break;
 					}	
@@ -387,14 +387,15 @@ namespace argos {
 		std::vector<CVector2> positions;
 
 		for(const auto& enemy : m_Readings.BlobList) {
-			if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
+			//if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
+			if(enemy->Color == CColor::RED) {
+				for(const auto& food : m_Readings.BlobList) {
+					if(food->Color != CColor::GRAY80) continue;
 
-			for(const auto& food : m_Readings.BlobList) {
-				if(food->Color != CColor::GRAY80) continue;
-
-				if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
-					positions.emplace_back(enemy->Distance, enemy->Angle);
-					break;
+					if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
+						positions.emplace_back(enemy->Distance, enemy->Angle);
+						break;
+					}
 				}
 			}
 		}
@@ -487,7 +488,7 @@ namespace argos {
 		if(enemyPositions.empty() && followingEnemy) {
 			for(const auto& enemy : m_Readings.BlobList) {
 				if(enemy->Color != CColor::GRAY80 && enemy->Color != m_teamColor) {
-					if((relToAbsPosition(CVector2(enemy->Distance/100, enemy->Angle)) - enemyWithFoodPos).Length() < 0.5f){
+					if((relToAbsPosition(CVector2(enemy->Distance/100, enemy->Angle)) - enemyWithFoodPos).Length() < 0.2f){
 						enemyBasePos = enemyWithFoodPos;
 						enemyBaseKnown = true; 
 						std::cout << "found emeny base at:" << enemyBasePos.GetX() << "," << enemyBasePos.GetY() << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
