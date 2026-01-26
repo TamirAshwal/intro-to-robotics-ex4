@@ -19,64 +19,56 @@ namespace argos {
 		rightWheelSpeed = 0.0f;
 		hasFood = false;
 		chooseCurrMovement();
-		// --- אתחול מנגנון תקיעות ---
-    m_lastStuckPosition = getRobotPosition();
-    m_stuckTimer = 0;
-    m_unstickStepCounter = 0;
-    m_isUnsticking = false;
-	m_proximityStuckTimer = 0;
+		// variables for stuck detection
+		m_lastStuckPosition = getRobotPosition();
+		m_stuckTimer = 0;
+		m_unstickStepCounter = 0;
+		m_isUnsticking = false;
+		m_proximityStuckTimer = 0;
 
 	}
 
 	void Controller1::ControlStep() {
 		/* Your ControlStep code goes here*/
 		m_Readings = m_pcCamera->GetReadings();
-
-   // 1. אם אנחנו כבר באמצע תמרון חילוץ, נמשיך אותו עד הסוף
+		// Unstuck mechanism
+		// firstly check if we are stuck this is true after the robot decided it is stuck
 		if (m_isUnsticking) {
-			// std::cout << "Unsticking maneuver step " << m_unstickStepCounter << std::endl;
 			m_unstickStepCounter++;
-			
-			// שלב א: רוורס למשך 20 צעדים
+			// we are stuck so first we  reverse for 20 steps
 			if (m_unstickStepCounter < 20) {
 				m_pcWheels->SetLinearVelocity(-0.1f, -0.1f); // הגברתי טיפה מהירות רוורס
 			}
-			// שלב ב: סיבוב אגרסיבי למשך 30 צעדים
+			// then we turn for 30 steps
 			else if (m_unstickStepCounter < 50) {
 				m_pcWheels->SetLinearVelocity(0.05f, -0.05f); 
 			}
-			// סיום התמרון - כאן התיקון הקריטי לאוכל!
+			// after the stuck menuver is done which is after 50 steps we reset the variables and return to previous state
 			else {
 				m_isUnsticking = false;
 				m_stuckTimer = 0;
-                m_proximityStuckTimer = 0; // איפוס מונה קרבה
+                m_proximityStuckTimer = 0; 
 				m_lastStuckPosition = getRobotPosition(); 
-
-                // --- תיקון לבעיה 2: חישוב מסלול מחדש אם יש אוכל ---
+				// super important check to see if ew were in the middle of returning to base
                 if (hasFood) {
                     std::cout << "Unstuck with food! Recalculating path to base." << std::endl;
                     eState = STATE_RETURN_TO_BASE;
-                    m_bFacingBase = false; // זה יגרום לחישוב מחדש של ה-M-Line מהמיקום החדש
+                    m_bFacingBase = false; 
                 }
                 else {
-				    // אם אין אוכל, חוזרים לחקור
+					// if we don;t have food we just conntinue with exploring 
 				    eState = STATE_EXPLORE; 
 				    chooseCurrMovement(); 
                 }
 			}
-			return; // אם בחילוץ, לא עושים כלום אחר
+			return; 
 		}
-
-		// 2. בדיקה האם נתקענו? (Proximity Check + Position Check)
-		
+		// this is after the first if statement meaning we are not in the middle of the menuver
         bool isStuck = false;
-
-        // --- בדיקה א': האם יש רובוט דבוק אלינו? ---
         bool robotClose = false;
+		// check if there are robots which can be teamates or enemies really clise to us
         for(const auto& blob : m_Readings.BlobList) {
-            // אם זה רובוט (כחול או אדום)
             if (blob->Color == CColor::BLUE || blob->Color == CColor::RED) {
-                // אם הוא קרוב מאוד (פחות מ-20 ס"מ) וממש מלפנים
                 if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
                     robotClose = true;
 					std::cout << "Robot too close! Distance: " << blob->Distance << " Angle: " << blob->Angle << std::endl;
@@ -84,37 +76,35 @@ namespace argos {
                 }
             }
         }
-
+		// we upadte the proximityStuckTimer according to if there are robots close to us
         if (robotClose) {
             m_proximityStuckTimer++;
-        } else {
+        } 
+		else {
             if(m_proximityStuckTimer > 0) m_proximityStuckTimer--;
         }
-
-        // אם רובוט חוסם אותנו במשך כ-3 שניות (30 צעדים)
+		// if the timer is above 30 we are stuck
         if (m_proximityStuckTimer > 30) {
             std::cout << "PROXIMITY STUCK DETECTED! (Blocked by robot)" << std::endl;
             isStuck = true;
         }
-
-
-        // --- בדיקה ב': האם המיקום לא משתנה? (הקוד הקודם) ---
+		// this is the same logic as before but we use location instead of the camera
 		CVector2 currentPos = getRobotPosition();
 		Real distMoved = (currentPos - m_lastStuckPosition).Length();
 
 		if (distMoved < STUCK_THRESHOLD_DIST) {
 			m_stuckTimer++;
-		} else {
+		} 
+		else {
 			m_stuckTimer = 0;
 			m_lastStuckPosition = currentPos;
 		}
-
+		// if we are stuck for sime tine make the flag true
 		if (m_stuckTimer > STUCK_THRESHOLD_TIME) {
 			std::cout << "POSITION STUCK DETECTED!" << std::endl;
             isStuck = true;
 		}
-
-        // --- הפעלת החילוץ אם אחת הבדיקות נכשלת ---
+		// we are stuck so we make sure we start the menuver
         if (isStuck) {
             m_isUnsticking = true;
 			m_unstickStepCounter = 0;
@@ -164,129 +154,106 @@ namespace argos {
 	// state functions
 	void Controller1::randomWalk(){
 		walkCounter++;
+		// check if we need to choose a new movement
 		if(walkCounter >= currMovementDuration){
 			walkCounter = 0;
 			chooseCurrMovement();
 		}
 		m_pcWheels->SetLinearVelocity(leftWheelSpeed, rightWheelSpeed);
-		
 	}
+	// fucntion that choose the next movement randomally
 	void Controller1:: chooseCurrMovement(){
 	
 		Real movement = m_rng->Uniform(CRange<Real>(0.0f,1.0f));
+		// going straight
 		if(movement < 0.50f){
 			currMovementDuration = 50 +  m_rng->Uniform(CRange<UInt32>(0,50));
 			leftWheelSpeed = 0.157f;
 			rightWheelSpeed = 0.157f;
 			
 		}
+		// rotating left in place 
 		else if(movement < 0.68f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = -0.05f;
 			rightWheelSpeed = 0.05f;
 			
 		}
+		// ratating right in place
 		else if(movement < 0.86f){
 			currMovementDuration = 5 +  m_rng->Uniform(CRange<UInt32>(0,5));
 			leftWheelSpeed = 0.05f;
 			rightWheelSpeed = -0.05f;
 			
 		}
+		// moving in a circular path 
 		else{
 			currMovementDuration = 40 +  m_rng->Uniform(CRange<UInt32>(0,40));
 			Real fSpeedRatio = m_rng->Uniform(CRange<Real>(0.85, 0.95));
 			if(m_rng->Uniform(CRange<Real>(0.0, 1.0)) < 0.5) {
-				// מעגל שמאלה
+				// left circle
 				leftWheelSpeed = 0.157f * fSpeedRatio;
 				rightWheelSpeed = 0.157f;
-				
 			} else {
-				// מעגל ימינה
+				// right circle
 				leftWheelSpeed = 0.157f;
 				rightWheelSpeed = 0.157f * fSpeedRatio;
-				
 			}
 		}
 	}
 	
 	void Controller1::returnToBase() {
-    // שלב 1: בדיקת הגעה לבסיס (ללא שינוי)
-    CVector2 currPos = getRobotPosition();
-    CVector2 basePos = getBasePosition();
-    Real distanceToBase = (currPos - basePos).Length();
-
-    if(distanceToBase < 0.10f){ // הגדלתי טיפה ל-0.10 שיהיה קל יותר לפגוע
-        m_pcWheels->SetLinearVelocity(0.0f, 0.0f);
-        hasFood = false;
-        m_carriedFoodId = std::nullopt;
-        std::cout << "Dropped food at base! Back to Explore." << std::endl;
-        eState = STATE_EXPLORE;
-        walkCounter = 0;
-        chooseCurrMovement();
-        return;
-    }
-
-    // --- שלב א': סיבוב במקום ---
-    if (!m_bFacingBase) {
-        
-        // חישוב וקטור לבסיס
-        CVector2 toBase = basePos - currPos;
-        
-        // חישוב הזווית הרצויה והנוכחית
-        CRadians targetHeading = toBase.Angle();
-        CRadians currentHeading = getRobotHeading();
-        
-        // תיקון חשוב: חיסור רגיל ואז SignedNormalize לתוצאה
-        // זה מבטיח שנקבל זווית בין -PI ל-PI (הדרך הקצרה)
-        CRadians error = (targetHeading - currentHeading).SignedNormalize();
-        
-        // הגדרת סף דיוק (קצת יותר סלחני)
-        const Real epsilon = 0.05f; // כ-3 מעלות
-
-        if (Abs(error.GetValue()) > epsilon) {
-            std::cout << "readjust the heading... Error: " << error.GetValue() << std::endl;
-            
-            // --- הפתרון לבעיית הרעידות ---
-            // במקום מהירות קבועה, המהירות תלויה בגודל השגיאה.
-            // ככל שמתקרבים - המהירות יורדת.
-            Real speed = error.GetValue() * 0.5f; 
-            
-            // הגבלת מהירות מינימלית ומקסימלית כדי שלא ייתקע או ישתולל
-            if(speed > 0.2f) speed = 0.2f;
-            if(speed < -0.2f) speed = -0.2f;
-            // אם המהירות ממש נמוכה אבל עדיין לא הגענו, תן דחיפה קטנה
-            if(speed > 0.0f && speed < 0.02f) speed = 0.02f;
-            if(speed < 0.0f && speed > -0.02f) speed = -0.02f;
-
-            // סיבוב במקום (גלגלים הפוכים)
-            m_pcWheels->SetLinearVelocity(-speed, speed);
-        } 
-        else {
-            // הגענו לזווית!
-            m_bFacingBase = true;
-            m_cReturnLineHeading = targetHeading; // שמירת ה-M-Line
-            
-            m_pcWheels->SetLinearVelocity(0.0f, 0.0f); // עצירה מוחלטת לפני תחילת תנועה
-            std::cout << "Aligned with base! Starting M-Line." << std::endl;
-        }
-        return;
-    }
-
-    // --- שלב ב': נסיעה על ה-M-Line ---
-    else {
-        CRadians currHeading = getRobotHeading();
-        
-        // חישוב שגיאה ביחס לקו המקורי ששמרנו
-        CRadians error = (m_cReturnLineHeading - currHeading).SignedNormalize();
-        
-        // כאן משתמשים בתיקון עדין תוך כדי נסיעה קדימה (כמו ב-Bug2)
-        const Real K_P = 0.5f; // מקדם תיקון
-        Real turnCorrection = error.GetValue() * K_P;
-        
-        // מהירות בסיס קדימה + תיקון
-        m_pcWheels->SetLinearVelocity(0.15f - turnCorrection, 0.15f + turnCorrection);
-    }
-}
+		// firstly check if we got to the base
+		CVector2 currPos = getRobotPosition();
+		CVector2 basePos = getBasePosition();
+		Real distanceToBase = (currPos - basePos).Length();
+		// if so drop the food return to explore and update the flags
+		if(distanceToBase < 0.10f){ 
+			m_pcWheels->SetLinearVelocity(0.0f, 0.0f);
+			hasFood = false;
+			m_carriedFoodId = std::nullopt;
+			std::cout << "Dropped food at base! Back to Explore." << std::endl;
+			eState = STATE_EXPLORE;
+			walkCounter = 0;
+			chooseCurrMovement();
+			return;
+		}
+		// check if we are facing the base if not we rotate the robot
+		if (!m_bFacingBase) {
+			CVector2 toBase = basePos - currPos;
+			CRadians targetHeading = toBase.Angle();
+			CRadians currentHeading = getRobotHeading();
+			CRadians error = (targetHeading - currentHeading).SignedNormalize();
+			const Real epsilon = 0.05f; 
+			// fix the robot heading 
+			if (Abs(error.GetValue()) > epsilon) {
+				std::cout << "readjust the heading... Error: " << error.GetValue() << std::endl;
+				// move it by a speed proportional to the error
+				Real speed = error.GetValue() * 0.5f; 
+				if(speed > 0.2f) speed = 0.2f;
+				if(speed < -0.2f) speed = -0.2f;
+				if(speed > 0.0f && speed < 0.02f) speed = 0.02f;
+				if(speed < 0.0f && speed > -0.02f) speed = -0.02f;
+				m_pcWheels->SetLinearVelocity(-speed, speed);
+			} 
+			// the heading is correct so update the flags
+			else {
+				m_bFacingBase = true;
+				m_cReturnLineHeading = targetHeading; 
+				m_pcWheels->SetLinearVelocity(0.0f, 0.0f); 
+				std::cout << "Aligned with base! Starting M-Line." << std::endl;
+			}
+			return;
+		}
+		// the heading is correct
+		else {
+			CRadians currHeading = getRobotHeading();
+			CRadians error = (m_cReturnLineHeading - currHeading).SignedNormalize();
+			const Real K_P = 0.5f; 
+			Real turnCorrection = error.GetValue() * K_P;
+			m_pcWheels->SetLinearVelocity(0.15f - turnCorrection, 0.15f + turnCorrection);
+		}
+	}
 		
 
 	bool Controller1::isFoodVisible() const{
@@ -371,6 +338,7 @@ namespace argos {
 
 		return CRadians::PI;
 	}
+	// check to see if we need this function
 	bool Controller1::isTeammateAhead() const {
     for(const auto& blob : m_Readings.BlobList) {
         if(blob->Color == CColor::BLUE) {  // כחול = teammate

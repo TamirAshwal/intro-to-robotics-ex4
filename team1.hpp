@@ -16,31 +16,33 @@ namespace argos {
       uint8_t getTeamId() const override { return 1; }
       private:
       /* state enum*/
-      enum Estate{
-         STATE_EXPLORE,
-         STATE_AVOID_OBSTACLE,
-         STATE_TO_FOOD,
-         STATE_RETURN_TO_BASE,
-         //Raz's addition
-         STATE_BLOCK
-      };
-      CCI_ColoredBlobOmnidirectionalCameraSensor::SReadings m_Readings;
-      Estate eState;
+         enum Estate{
+            STATE_EXPLORE,
+            STATE_AVOID_OBSTACLE,
+            STATE_TO_FOOD,
+            STATE_RETURN_TO_BASE,
+            //Raz's addition
+            STATE_BLOCK
+         };
+         CCI_ColoredBlobOmnidirectionalCameraSensor::SReadings m_Readings;
+         Estate eState;
       // parameters
-      CVector2 m_lastStuckPosition;     // המיקום בבדיקה האחרונה
-    UInt32 m_stuckTimer;              // כמה זמן אנחנו באותו מקום
-    UInt32 m_unstickStepCounter;      // מונה לביצוע תמרון החילוץ
-    bool m_isUnsticking;              // האם אנחנו כרגע בתמרון חילוץ?
 
-    // קבועים (אפשר לשחק איתם)
-    const UInt32 STUCK_THRESHOLD_TIME = 50;  // אחרי 50 צעדים (כ-5 שניות) נחשב כתקועים
-    const Real STUCK_THRESHOLD_DIST = 0.02f; // אם זזנו פחות מ-2 ס"מ
-    UInt32 m_proximityStuckTimer;
-      
+      // variables for stuck detection and mechanism
+      CVector2 m_lastStuckPosition;     
+      UInt32 m_stuckTimer;             
+      UInt32 m_unstickStepCounter;      
+      bool m_isUnsticking;             
+      const UInt32 STUCK_THRESHOLD_TIME = 50;  // אחרי 50 צעדים (כ-5 שניות) נחשב כתקועים
+      const Real STUCK_THRESHOLD_DIST = 0.02f; // אם זזנו פחות מ-2 ס"מ
+      UInt32 m_proximityStuckTimer;
+
+      // variables for random walk and explore state
       UInt32 walkCounter;
       UInt32 currMovementDuration;
 		Real leftWheelSpeed;
 		Real rightWheelSpeed;
+      
       bool hasFood;
       //Raz's addition
       bool blockMode;
@@ -50,13 +52,9 @@ namespace argos {
       bool followingEnemy;
       CVector2 enemyWithFoodPos;
       int foodLostCounter;
-         // Unstuck mechanism variables
-     bool m_bFacingBase = false;        
-   CRadians m_cReturnLineHeading;
-
-     
-    
-
+      // return to base variables 
+      bool m_bFacingBase = false;        
+      CRadians m_cReturnLineHeading;
 
       // helper functions
       bool isObstacleAhead() const;
@@ -79,8 +77,6 @@ namespace argos {
 
       // state functions
       void randomWalk();
-      void avoidObstacle();
-      void moveToFood();
       void returnToBase();
       //Raz's addition
       void moveToFood2();
