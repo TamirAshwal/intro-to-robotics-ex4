@@ -21,7 +21,6 @@ namespace argos {
             STATE_AVOID_OBSTACLE,
             STATE_TO_FOOD,
             STATE_RETURN_TO_BASE,
-            //Raz's addition
             STATE_BLOCK
          };
          CCI_ColoredBlobOmnidirectionalCameraSensor::SReadings m_Readings;
@@ -44,7 +43,6 @@ namespace argos {
 		Real rightWheelSpeed;
       
       bool hasFood;
-      //Raz's addition
       bool blockMode;
       CVector2 enemyBasePos;
       //blocking effort
@@ -71,8 +69,7 @@ namespace argos {
       CVector2 getBasePosition() const;
       CVector2 relToAbsPosition(const CVector2 blob) const;
       void enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal);
-      void turn4defence(CVector2 enemyBasePos);
-      //Raz's addition
+      bool turn4defence(CVector2 enemyBasePos);
       std::vector<CVector2> getFoodPositions() const;
       CRadians angle2TeamAhead() const;
       //blocking effort
@@ -87,7 +84,7 @@ namespace argos {
       // state functions
       void randomWalk();
       void returnToBase();
-      //Raz's addition
+
       void moveToFood2();
       void avoidObstacle2();
       void block();

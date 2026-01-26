@@ -44,7 +44,6 @@ namespace argos {
 		Real rightWheelSpeed;
       
       bool hasFood;
-      //Raz's addition
       bool blockMode;
       CVector2 enemyBasePos;
       //blocking effort
@@ -72,7 +71,6 @@ namespace argos {
       CVector2 relToAbsPosition(const CVector2 blob) const;
       void enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal);
       void turn4defence(CVector2 enemyBasePos);
-      //Raz's addition
       std::vector<CVector2> getFoodPositions() const;
       CRadians angle2TeamAhead() const;
       //blocking effort
@@ -87,7 +85,6 @@ namespace argos {
       // state functions
       void randomWalk();
       void returnToBase();
-      //Raz's addition
       void moveToFood2();
       void avoidObstacle2();
       void block();

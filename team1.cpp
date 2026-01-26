@@ -32,7 +32,7 @@ namespace argos {
 		interception_alpha = 0.6f;
 		interception_K = 5.0f;
 		isRobotCW = true;
-		blockMode = blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		blockMode = false; //blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
 
 	}
 
@@ -323,25 +323,41 @@ namespace argos {
       return cHeading;
    }
 
-   //Raz's addition
-   //new!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   //returns all the positions of all the food that is not taken or about to be taken
-	std::vector<CVector2> Controller1::getFoodPositions() const{
+    std::vector<CVector2> Controller1::getFoodPositions() const {
 		std::vector<CVector2> foodPositions;
 
-		for(const auto& foodblob : m_Readings.BlobList){
-			if(foodblob->Color == CColor::GRAY80 ){
+		for (const auto& foodblob : m_Readings.BlobList) {
+			if (foodblob->Color == CColor::GRAY80) {
 				bool taken = false;
-				
-				for(const auto& robotblob : m_Readings.BlobList){
-					if(robotblob->Color != CColor::GRAY80 && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
-						taken = true;
-						break;
-					}	
+
+				// 1. יצירת וקטור מהרובוט שלי אל האוכל
+				// (ממירים מרחק וזווית לקואורדינטות X,Y מקומיות)
+				CVector2 vMeToFood;
+				vMeToFood.FromPolarCoordinates(foodblob->Distance, foodblob->Angle);
+
+				for (const auto& robotblob : m_Readings.BlobList) {
+					// בדיקה אם זה רובוט (כל צבע שאינו אפור)
+					if (robotblob->Color != CColor::GRAY80) {
+						
+						// 2. יצירת וקטור מהרובוט שלי אל הרובוט האחר
+						CVector2 vMeToRobot;
+						vMeToRobot.FromPolarCoordinates(robotblob->Distance, robotblob->Angle);
+
+						// 3. חישוב הווקטור מהרובוט האחר אל האוכל (חיסור וקטורים)
+						CVector2 vRobotToFood = vMeToFood - vMeToRobot;
+
+						// 4. השוואת מרחקים:
+						// אם הרובוט האחר קרוב יותר לאוכל ממני -> האוכל תפוס
+						if (vRobotToFood.Length() < vMeToFood.Length()) {
+							taken = true;
+							break;
+						}
+					}
 				}
 
-				if(!taken)
-					foodPositions.emplace_back(foodblob->Distance, foodblob->Angle); 
+				if (!taken) {
+					foodPositions.emplace_back(foodblob->Distance, foodblob->Angle);
+				}
 			}
 		}
 
@@ -435,11 +451,11 @@ namespace argos {
 
 		for(const auto& enemy : m_Readings.BlobList) {
 			if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
-			// if(enemy->Color == CColor::RED) {
+			
 			for(const auto& food : m_Readings.BlobList) {
 				if(food->Color != CColor::GRAY80) continue;
 				if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
-					positions.emplace_back(enemy->Distance, enemy->Angle);
+					positions.emplace_back(food->Distance, food->Angle);
 					break;
 				}
 		}
@@ -510,7 +526,7 @@ namespace argos {
 
     // Case 1: We know where the enemy base is, but see no enemies -> Guard the base
     if(enemyBaseKnown && enemyPositions.empty()) {
-            turn4defence(enemyBasePos);
+            if (turn4defence(enemyBasePos)) m_pcWheels->SetLinearVelocity(0,0);
             return;
     }
 
@@ -523,7 +539,7 @@ namespace argos {
                 if((relToAbsPosition(CVector2(enemy->Distance/100.0f, enemy->Angle)) - enemyWithFoodPos).Length() < 0.2f){
                     enemyBasePos = enemyWithFoodPos;
                     enemyBaseKnown = true; 
-                    std::cout << "Found Enemy Base!" << std::endl;
+                    std::cout << "Found Enemy Base at: " << enemyBasePos.GetX() << ',' << enemyBasePos.GetY() <<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<< std::endl;
                     turn4defence(enemyBasePos); 
                     return;
                 }
@@ -547,7 +563,6 @@ namespace argos {
     enemyWithFoodPos = relToAbsPosition(CVector2(minDistance/100.0f, relativeAngle)); 
 
     if(enemyBaseKnown){
-        turn4defence(enemyBasePos);
         enemyBlocking(enemyWithFoodPos, enemyBasePos);
     }
     else{
@@ -565,7 +580,10 @@ CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
 
 		return robotPos + blobRel;
 	}
+
 	void Controller1::enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal){
+		if(!turn4defence(enemyGoal)) return;
+
 		CVector2 robotPos = getRobotPosition();
 		CRadians robotHeading = getRobotHeading();
 
@@ -578,31 +596,32 @@ CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
 
 		CRadians deltaAng = (angE - angR).SignedNormalize();
 
-		float speed = ((deltaAng * isRobotCW).GetValue() > 0)? 1.2f : -1.2f;
+		float speed = ((deltaAng * isRobotCW).GetValue() > 0)? 0.12f : -0.12f;
 
 		m_pcWheels->SetLinearVelocity(speed , speed);
 	}
-	void Controller1::turn4defence(CVector2 enemyBasePos){
+	
+	bool Controller1::turn4defence(CVector2 enemyBasePos){
 		CVector2 robotPos = getRobotPosition();
 		CRadians robotHeading = getRobotHeading();
 
 		CVector2 toTarget =  enemyBasePos - robotPos;
-		CRadians headingErrPlus = CRadians(toTarget.Angle() + CRadians::PI_OVER_TWO - robotHeading).SignedNormalize();
-		CRadians headingErrMinus = CRadians(toTarget.Angle() - CRadians::PI_OVER_TWO - robotHeading).SignedNormalize();
+		Real headingErrPlus = CRadians(toTarget.Angle() + CRadians::PI_OVER_TWO - robotHeading).SignedNormalize().GetAbsoluteValue();
+		Real headingErrMinus = CRadians(toTarget.Angle() - CRadians::PI_OVER_TWO - robotHeading).SignedNormalize().GetAbsoluteValue();
 
-		if(headingErrPlus < headingErrMinus && headingErrPlus > CRadians(0.1)){
-			m_pcWheels->SetLinearVelocity(-0.1, 0.1);
+		isRobotCW = (headingErrPlus < headingErrMinus)? -1 : 1;
+		if(headingErrPlus < headingErrMinus) {
 			isRobotCW = -1;
+			if(headingErrPlus < 0.1) return true;
+			m_pcWheels->SetLinearVelocity(-0.01, 0.01);
 		}
-		else if ( headingErrMinus < headingErrPlus && headingErrMinus > CRadians(0.1))
-		{
-			m_pcWheels->SetLinearVelocity(0.1, -0.1);
-			isRobotCW = 1;
+		else {
+			isRobotCW = +1;
+			if(headingErrMinus < 0.1) return true;
+			m_pcWheels->SetLinearVelocity(0.01, -0.01);
 		}
-		else{
-			m_pcWheels->SetLinearVelocity(0, 0);
-			isRobotCW = (headingErrPlus < headingErrMinus)? -1 : 1;
-		}
+
+		return false;
 	}
 
 
