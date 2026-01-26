@@ -41,12 +41,15 @@ namespace argos {
       void chooseCurrMovement();
       bool isFoodVisible() const;
       CVector2 getBasePosition() const;
+      std::vector<CVector2> getFoodPositions() const;
+      void moveToFood2();
       
       // state functions
       void randomWalk();
       void avoidObstacle();
       void moveToFood();
       void returnToBase();
+      CRadians angle2TeamAhead() const;
 
    };
 }

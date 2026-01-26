@@ -33,8 +33,8 @@ namespace argos {
       UInt32 m_stuckTimer;             
       UInt32 m_unstickStepCounter;      
       bool m_isUnsticking;             
-      const UInt32 STUCK_THRESHOLD_TIME = 50;  // אחרי 50 צעדים (כ-5 שניות) נחשב כתקועים
-      const Real STUCK_THRESHOLD_DIST = 0.02f; // אם זזנו פחות מ-2 ס"מ
+      const UInt32 STUCK_THRESHOLD_TIME = 50;  
+      const Real STUCK_THRESHOLD_DIST = 0.02f; 
       UInt32 m_proximityStuckTimer;
 
       // variables for random walk and explore state
@@ -55,6 +55,12 @@ namespace argos {
       // return to base variables 
       bool m_bFacingBase = false;        
       CRadians m_cReturnLineHeading;
+      // interception specific variables (FROM FILE 1)
+      bool isRobotCW; // Clockwise direction flag for blocking
+      float lastAngleToTarget;
+      float filterdError;
+      float interception_alpha;
+      float interception_K;
 
       // helper functions
       bool isObstacleAhead() const;
@@ -63,6 +69,9 @@ namespace argos {
       void chooseCurrMovement();
       bool isFoodVisible() const;
       CVector2 getBasePosition() const;
+      CVector2 relToAbsPosition(const CVector2 blob) const;
+      void enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal);
+      void turn4defence(CVector2 enemyBasePos);
       //Raz's addition
       std::vector<CVector2> getFoodPositions() const;
       CRadians angle2TeamAhead() const;
