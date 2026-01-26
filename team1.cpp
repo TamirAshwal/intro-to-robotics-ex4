@@ -32,7 +32,7 @@ namespace argos {
 		interception_alpha = 0.6f;
 		interception_K = 5.0f;
 		isRobotCW = true;
-		// blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		blockMode = blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
 
 	}
 
@@ -128,15 +128,15 @@ namespace argos {
 				if(isObstacleAhead()){
 					eState = STATE_AVOID_OBSTACLE;
 				}
-				// else if(!enemyWithFoodPossitions().empty()){
-				// 	eState = STATE_BLOCK;
-				// 	std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
-				// }
+				else if(!enemyWithFoodPossitions().empty()){
+					eState = STATE_BLOCK;
+					std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
+				}
 				// Logic from File 1: Enter block mode if assigned and enemy seen
-            	// else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
-                // eState = STATE_BLOCK;
-                // std::cout << "Enemy with Food detected! Switching to Block state" << std::endl;
-           		// }
+            	else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
+                eState = STATE_BLOCK;
+                std::cout << "Enemy with Food detected! Switching to Block state" << std::endl;
+           		}
 				else if(!getFoodPositions().empty() && !hasFood){
 					eState = STATE_TO_FOOD;
 					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
@@ -334,7 +334,7 @@ namespace argos {
 				bool taken = false;
 				
 				for(const auto& robotblob : m_Readings.BlobList){
-					if((robotblob->Color == CColor::BLUE || robotblob->Color == CColor::RED) && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
+					if(robotblob->Color != CColor::GRAY80 && (foodblob->Angle - robotblob->Angle).UnsignedNormalize() < CRadians::PI_OVER_THREE){
 						taken = true;
 						break;
 					}	
@@ -431,33 +431,23 @@ namespace argos {
 	//blocking effort
 	//blocking effort
 	std::vector<CVector2> Controller1::enemyWithFoodPossitions() const {
-		// std::vector<CVector2> positions;
-
-		// for(const auto& enemyblob : m_Readings.BlobList) {
-		// 	if(enemyblob->Color == CColor::RED)
-		// 		for(const auto& foodblob : m_Readings.BlobList) {
-		// 			if(foodblob->Color == CColor::GRAY80)
-		// 				positions.emplace_back(enemyblob->Distance, enemyblob->Angle);
-		// 		}
-		// }
-		// return positions;
-
 		std::vector<CVector2> positions;
 
 		for(const auto& enemy : m_Readings.BlobList) {
-			if(enemy->Color != CColor::RED) continue;
-
+			if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
+			// if(enemy->Color == CColor::RED) {
 			for(const auto& food : m_Readings.BlobList) {
 				if(food->Color != CColor::GRAY80) continue;
-
-				CRadians dAngle =(enemy->Angle - food->Angle).UnsignedNormalize();
-
-				if(dAngle < CRadians::PI / 12) {
+				if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
 					positions.emplace_back(enemy->Distance, enemy->Angle);
 					break;
 				}
-			}
 		}
+		}
+
+
+
+		
 		return positions;
 	}
 
@@ -530,7 +520,7 @@ namespace argos {
             // Check all non-food, non-team blobs
             if(enemy->Color != CColor::GRAY80 && enemy->Color != m_teamColor) { // Make sure m_teamColor is defined or use !Blue/!Red logic
                 // Distance check to define "Base Found"
-                if((relToAbsPosition(CVector2(enemy->Distance/100.0f, enemy->Angle)) - enemyWithFoodPos).Length() < 0.5f){
+                if((relToAbsPosition(CVector2(enemy->Distance/100.0f, enemy->Angle)) - enemyWithFoodPos).Length() < 0.2f){
                     enemyBasePos = enemyWithFoodPos;
                     enemyBaseKnown = true; 
                     std::cout << "Found Enemy Base!" << std::endl;
