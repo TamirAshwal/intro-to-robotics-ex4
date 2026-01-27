@@ -1,3 +1,4 @@
+// 209374867
 #include "team1.hpp"
 #include <iostream>
 
@@ -32,7 +33,7 @@ namespace argos {
 		interception_alpha = 0.6f;
 		interception_K = 5.0f;
 		isRobotCW = true;
-		blockMode = false; //blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		// blockMode = false; //blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
 
 	}
 
@@ -79,7 +80,7 @@ namespace argos {
         bool robotClose = false;
 		// check if there are robots which can be teamates or enemies really clise to us
         for(const auto& blob : m_Readings.BlobList) {
-            if (blob->Color == CColor::BLUE || blob->Color == CColor::RED) {
+            if (blob->Color != CColor::GRAY80) {
                 if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
                     robotClose = true;
 					
@@ -128,15 +129,15 @@ namespace argos {
 				if(isObstacleAhead()){
 					eState = STATE_AVOID_OBSTACLE;
 				}
-				else if(!enemyWithFoodPossitions().empty()){
-					eState = STATE_BLOCK;
-					std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
-				}
-				// Logic from File 1: Enter block mode if assigned and enemy seen
-            	else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
-                eState = STATE_BLOCK;
-                std::cout << "Enemy with Food detected! Switching to Block state" << std::endl;
-           		}
+				// else if(!enemyWithFoodPossitions().empty()){
+				// 	eState = STATE_BLOCK;
+				// 	std::cout << "enemy with Food detected! Switching to Block state" << std::endl;
+				// }
+				// // Logic from File 1: Enter block mode if assigned and enemy seen
+            	// else if(blockMode && !enemyBaseKnown && !enemyWithFoodPossitions().empty()){
+                // eState = STATE_BLOCK;
+                // std::cout << "Enemy with Food detected! Switching to Block state" << std::endl;
+           		// }
 				else if(!getFoodPositions().empty() && !hasFood){
 					eState = STATE_TO_FOOD;
 					std::cout << "Food detected! Switching to TO_FOOD state" << std::endl;
@@ -274,7 +275,7 @@ namespace argos {
 
 	}
 		
-
+	// helper functions to check for food and base position
 	bool Controller1::isFoodVisible() const{
 		for(const auto& blob : m_Readings.BlobList){
 			if(blob->Color == CColor::GRAY80){
@@ -283,7 +284,7 @@ namespace argos {
 		}
 		return false;
 	}
-	
+	// get the base position from the ForagingController class
 	CVector2 Controller1::getBasePosition() const{
 		if(m_basePositions.empty()){
 			std::cout << " base positions not initialized!" << std::endl;
@@ -312,10 +313,12 @@ namespace argos {
       m_pcRangefinders->Visit(fCheckSensor);
       return bObstacle;
    }
+   // get the robot position from the positioning sensor
 	CVector2 Controller1::getRobotPosition() const{
       const CCI_PositioningSensor::SReading& reading = m_pcPositioning->GetReading();
       return CVector2(reading.Position.GetX(), reading.Position.GetY());
    }
+   // get the robot heading from the positioning sensor
    CRadians Controller1::getRobotHeading() const{
       CRadians cHeading, cPitch, cRoll;
       const CCI_PositioningSensor::SReading& reading = m_pcPositioning->GetReading();
@@ -329,25 +332,18 @@ namespace argos {
 		for (const auto& foodblob : m_Readings.BlobList) {
 			if (foodblob->Color == CColor::GRAY80) {
 				bool taken = false;
-
-				// 1. יצירת וקטור מהרובוט שלי אל האוכל
-				// (ממירים מרחק וזווית לקואורדינטות X,Y מקומיות)
+				// vector from me to the food
 				CVector2 vMeToFood;
 				vMeToFood.FromPolarCoordinates(foodblob->Distance, foodblob->Angle);
-
 				for (const auto& robotblob : m_Readings.BlobList) {
-					// בדיקה אם זה רובוט (כל צבע שאינו אפור)
+					// check only other robots
 					if (robotblob->Color != CColor::GRAY80) {
-						
-						// 2. יצירת וקטור מהרובוט שלי אל הרובוט האחר
+						// distance between the food and the robot
 						CVector2 vMeToRobot;
 						vMeToRobot.FromPolarCoordinates(robotblob->Distance, robotblob->Angle);
-
-						// 3. חישוב הווקטור מהרובוט האחר אל האוכל (חיסור וקטורים)
+						// vector from the robot to the food
 						CVector2 vRobotToFood = vMeToFood - vMeToRobot;
-
-						// 4. השוואת מרחקים:
-						// אם הרובוט האחר קרוב יותר לאוכל ממני -> האוכל תפוס
+						// if the robot is closer to the food than me, mark the food as taken
 						if (vRobotToFood.Length() < vMeToFood.Length()) {
 							taken = true;
 							break;
@@ -363,10 +359,10 @@ namespace argos {
 
 		return foodPositions;
 	}
-
+	// angle to teammate ahead
 	CRadians Controller1::angle2TeamAhead() const{
 		for(const auto& blob : m_Readings.BlobList){
-			if(blob->Color == CColor::BLUE && blob->Angle.SignedNormalize() < CRadians::PI/6){
+			if(blob->Color == m_teamColor && blob->Angle.SignedNormalize() < CRadians::PI/6){
 				return blob->Angle.SignedNormalize();
 			}
 		}
@@ -376,11 +372,11 @@ namespace argos {
 	// check to see if we need this function
 	bool Controller1::isTeammateAhead() const {
     for(const auto& blob : m_Readings.BlobList) {
-        if(blob->Color == CColor::BLUE) {  // כחול = teammate
+        if(blob->Color == m_teamColor) {  
             CRadians angle = blob->Angle.SignedNormalize();
             // בדיקה אם הרובוט מלפנים (בטווח 30 מעלות) וקרוב
             if(Abs(angle.GetValue()) < CRadians::PI_OVER_SIX.GetValue() && 
-               blob->Distance < 50.0f) {  // 50 ס"מ במערכת המצלמה
+               blob->Distance < 50.0f) {  
                 return true;
             }
         }
@@ -388,12 +384,12 @@ namespace argos {
     return false;
 }
 
-	//overides!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	
 	// improved move to food that don't follow robots
 	void Controller1::moveToFood2(){
 		Real minDistance = std::numeric_limits<Real>::max();
 		CRadians relativeAngle;
-		
+		// get food positions that are not taken by other robots
 		std::vector<CVector2> foodPositions = getFoodPositions();
 		for(const auto& food : foodPositions){
 			if(food.Length() < minDistance){
@@ -401,7 +397,7 @@ namespace argos {
 				relativeAngle = food.Angle().SignedNormalize();
 			}
 		}
-
+		// check if we lost sight of the food
 		if(minDistance >= std::numeric_limits<Real>::max()){
 			std::cout << "Lost sight of food, returning to explore" << std::endl;
 			eState = STATE_EXPLORE;
@@ -415,7 +411,6 @@ namespace argos {
 			hasFood = true;
 			eState = STATE_RETURN_TO_BASE;
 			m_bFacingBase = false;
-		
 			return;
 		}
 		
@@ -437,36 +432,31 @@ namespace argos {
 	//improved avoidObstacle that clears the path for robots with food
 	void Controller1::avoidObstacle2(){
 		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); // סיבוב במקום
-    if(!isObstacleAhead()){ // אם הדרך התפנתה
-        eState = STATE_EXPLORE; // חזור לחקור
+    if(!isObstacleAhead()){ 
+        eState = STATE_EXPLORE; 
         walkCounter = 0; 
         chooseCurrMovement(); 
     }
 	}
 
 	//blocking effort
-	//blocking effort
 	std::vector<CVector2> Controller1::enemyWithFoodPossitions() const {
 		std::vector<CVector2> positions;
-
+		// find enemies that have food (food directly in front of them)
 		for(const auto& enemy : m_Readings.BlobList) {
 			if(enemy->Color == CColor::GRAY80 || enemy->Color == m_teamColor) continue;
-			
+			// check if there is food directly in front of the enemy
 			for(const auto& food : m_Readings.BlobList) {
 				if(food->Color != CColor::GRAY80) continue;
 				if((enemy->Angle - food->Angle).UnsignedNormalize() < CRadians::PI / 12) {
 					positions.emplace_back(food->Distance, food->Angle);
 					break;
 				}
+			}
 		}
-		}
-
-
-
-		
 		return positions;
 	}
-
+	// follow the enemy with food
 	void Controller1::followEnemy(const CRadians& relativeAngle) {
 		// move the robot towards the enemy
 		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
@@ -482,7 +472,7 @@ namespace argos {
 			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
 		}
 	}
-
+	// store the enemy base position
 	void Controller1::StoreEnemyBasePosition() {
 		enemyBasePos = enemyWithFoodPos;
 		enemyBaseKnown = true;
@@ -490,24 +480,24 @@ namespace argos {
 		std::cout << "Enemy base discovered at "
 				<< enemyBasePos << std::endl;
 	}
-
+	// go to enemy base and camp there
 	void Controller1::GoToEnemyBaseAndCamp() {
 		const CVector3& pos3D = m_pcPositioning->GetReading().Position;
 		CVector2 robotPos(pos3D.GetX(), pos3D.GetY());
-
+		// vector to enemy base
 		CVector2 toBase = enemyBasePos - robotPos;
 		CRadians targetAngle = toBase.Angle();
-
+		// get robot heading
 		CRadians heading, pitch, roll;
 		m_pcPositioning->GetReading().Orientation.ToEulerAngles(heading, pitch, roll);
-
+		// angle difference
 		CRadians diff = (targetAngle - heading).SignedNormalize();
-
+		// check if we got to the base
 		if(toBase.Length() < 0.15f) {
 			m_pcWheels->SetLinearVelocity(0.0f, 0.0f); // CAMP
 			return;
 		}
-
+		// move towards enemy base
 		if(Abs(diff) < CRadians::PI_OVER_SIX) {
 			m_pcWheels->SetLinearVelocity(0.15f, 0.15f);
 		}
@@ -518,97 +508,93 @@ namespace argos {
 			m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
 		}
 	}
+	// blocking state function
 	void Controller1::block() {
-    Real minDistance = std::numeric_limits<Real>::max();
-    CRadians relativeAngle;
-    
-    std::vector<CVector2> enemyPositions = enemyWithFoodPossitions();
+		Real minDistance = std::numeric_limits<Real>::max();
+		CRadians relativeAngle;
+		std::vector<CVector2> enemyPositions = enemyWithFoodPossitions();
+		// Case 1: We know where the enemy base is, but see no enemies -> Guard the base
+		if(enemyBaseKnown && enemyPositions.empty()) {
+				if (turn4defence(enemyBasePos)) m_pcWheels->SetLinearVelocity(0,0);
+				return;
+		}
+    	// Case 2: We were following an enemy, lost them, and now need to see if we found their base
+		if(enemyPositions.empty() && followingEnemy) {
+			for(const auto& enemy : m_Readings.BlobList) {
+				// Check all non-food, non-team blobs
+				if(enemy->Color != CColor::GRAY80 && enemy->Color != m_teamColor) { // Make sure m_teamColor is defined or use !Blue/!Red logic
+					// Distance check to define "Base Found"
+					if((relToAbsPosition(CVector2(enemy->Distance/100.0f, enemy->Angle)) - enemyWithFoodPos).Length() < 0.2f){
+						enemyBasePos = enemyWithFoodPos;
+						enemyBaseKnown = true; 
+						std::cout << "Found Enemy Base at: " << enemyBasePos.GetX() << ',' << enemyBasePos.GetY() <<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<< std::endl;
+						turn4defence(enemyBasePos); 
+						return;
+					}
+				}
+			}
+			followingEnemy = false;
+			eState = STATE_EXPLORE;
+			return;
+		}
 
-    // Case 1: We know where the enemy base is, but see no enemies -> Guard the base
-    if(enemyBaseKnown && enemyPositions.empty()) {
-            if (turn4defence(enemyBasePos)) m_pcWheels->SetLinearVelocity(0,0);
-            return;
-    }
+		// Case 3: We see enemies with food -> Chase or Block
+		for(const auto& enemy : enemyPositions){
+			if(enemy.Length() < minDistance){
+				minDistance = enemy.Length();
+				relativeAngle = enemy.Angle();
+			}
+		}
+		// Update predicted enemy position
+		// Note: Divide distance by 100 if your logic assumes cm vs meters, check consistency with relToAbsPosition
+		enemyWithFoodPos = relToAbsPosition(CVector2(minDistance/100.0f, relativeAngle)); 
 
-    // Case 2: We were following an enemy, lost them, and now need to see if we found their base
-    if(enemyPositions.empty() && followingEnemy) {
-        for(const auto& enemy : m_Readings.BlobList) {
-            // Check all non-food, non-team blobs
-            if(enemy->Color != CColor::GRAY80 && enemy->Color != m_teamColor) { // Make sure m_teamColor is defined or use !Blue/!Red logic
-                // Distance check to define "Base Found"
-                if((relToAbsPosition(CVector2(enemy->Distance/100.0f, enemy->Angle)) - enemyWithFoodPos).Length() < 0.2f){
-                    enemyBasePos = enemyWithFoodPos;
-                    enemyBaseKnown = true; 
-                    std::cout << "Found Enemy Base at: " << enemyBasePos.GetX() << ',' << enemyBasePos.GetY() <<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<< std::endl;
-                    turn4defence(enemyBasePos); 
-                    return;
-                }
-            }
-        }
-        followingEnemy = false;
-        eState = STATE_EXPLORE;
-        return;
-    }
-
-    // Case 3: We see enemies with food -> Chase or Block
-    for(const auto& enemy : enemyPositions){
-        if(enemy.Length() < minDistance){
-            minDistance = enemy.Length();
-            relativeAngle = enemy.Angle();
-        }
-    }
-    
-    // Update predicted enemy position
-    // Note: Divide distance by 100 if your logic assumes cm vs meters, check consistency with relToAbsPosition
-    enemyWithFoodPos = relToAbsPosition(CVector2(minDistance/100.0f, relativeAngle)); 
-
-    if(enemyBaseKnown){
+    	if(enemyBaseKnown){
         enemyBlocking(enemyWithFoodPos, enemyBasePos);
-    }
-    else{
+    	}
+    	else{
         followingEnemy = true;
         followEnemy(relativeAngle);
-    }
-}
-CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
-		CVector2 robotPos = getRobotPosition();
-		CRadians robotHeading = getRobotHeading();
-
-		CVector2 blobRel(blob.Length()* Cos(blob.Angle()),blob.Length() * Sin(blob.Angle()));
-
-		blobRel.Rotate(robotHeading);
-
-		return robotPos + blobRel;
+    	}
 	}
+	// convert relative position to absolute position
+	CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
+			CVector2 robotPos = getRobotPosition();
+			CRadians robotHeading = getRobotHeading();
 
+			CVector2 blobRel(blob.Length()* Cos(blob.Angle()),blob.Length() * Sin(blob.Angle()));
+
+			blobRel.Rotate(robotHeading);
+
+			return robotPos + blobRel;
+		}
+	// enemy blocking function
 	void Controller1::enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal){
-		if(!turn4defence(enemyGoal)) return;
-
+		if(!turn4defence(enemyGoal)){
+			 return;
+		}
 		CVector2 robotPos = getRobotPosition();
 		CRadians robotHeading = getRobotHeading();
 
-		// --- Target-centered angles ---
+		//Target-centered angles
 		CVector2 vE = enemyPos - enemyGoal;
 		CVector2 vR = robotPos - enemyGoal;
-
 		CRadians angE = vE.Angle();
 		CRadians angR = vR.Angle();
-
+		// angle difference
 		CRadians deltaAng = (angE - angR).SignedNormalize();
-
 		float speed = ((deltaAng * isRobotCW).GetValue() > 0)? 0.12f : -0.12f;
-
 		m_pcWheels->SetLinearVelocity(speed , speed);
 	}
-	
+	// turn to defence position function
 	bool Controller1::turn4defence(CVector2 enemyBasePos){
 		CVector2 robotPos = getRobotPosition();
 		CRadians robotHeading = getRobotHeading();
-
+		// vector to target defence position
 		CVector2 toTarget =  enemyBasePos - robotPos;
 		Real headingErrPlus = CRadians(toTarget.Angle() + CRadians::PI_OVER_TWO - robotHeading).SignedNormalize().GetAbsoluteValue();
 		Real headingErrMinus = CRadians(toTarget.Angle() - CRadians::PI_OVER_TWO - robotHeading).SignedNormalize().GetAbsoluteValue();
-
+		// decide direction
 		isRobotCW = (headingErrPlus < headingErrMinus)? -1 : 1;
 		if(headingErrPlus < headingErrMinus) {
 			isRobotCW = -1;
