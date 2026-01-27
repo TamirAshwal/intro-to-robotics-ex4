@@ -1,4 +1,4 @@
-// 209374867
+// 209374867 327821484
 #include "team1.hpp"
 #include <iostream>
 
@@ -26,15 +26,16 @@ namespace argos {
 		m_unstickStepCounter = 0;
 		m_isUnsticking = false;
 		m_proximityStuckTimer = 0;
+		// variables for the blocking code (depricated)
 		enemyBaseKnown = false;
     	followingEnemy = false;
+		isRobotCW = true;
+		blockMode = false; //blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
+		//variables for the interception code (depricated)
 		lastAngleToTarget = 0;
 		filterdError = 0;
 		interception_alpha = 0.6f;
 		interception_K = 5.0f;
-		isRobotCW = true;
-		// blockMode = false; //blockMode = CRandom::CreateRNG("argos")->Uniform(CRange<Real>(0.0f, 1.0f)) < 0.25;
-
 	}
 
 	void Controller1::ControlStep() {
@@ -45,84 +46,85 @@ namespace argos {
 		// Unstuck mechanism
 		// firstly check if we are stuck this is true after the robot decided it is stuck
 		if(shouldCheckStuck){
-		if (m_isUnsticking) {
-			m_unstickStepCounter++;
-			// we are stuck so first we  reverse for 20 steps
-			if (m_unstickStepCounter < 20) {
-				m_pcWheels->SetLinearVelocity(-0.1f, -0.1f); // הגברתי טיפה מהירות רוורס
+			if (m_isUnsticking) {
+				m_unstickStepCounter++;
+				// we are stuck so first we  reverse for 20 steps
+				if (m_unstickStepCounter < 20) {
+					m_pcWheels->SetLinearVelocity(-0.1f, -0.1f); // הגברתי טיפה מהירות רוורס
+				}
+				// then we turn for 30 steps
+				else if (m_unstickStepCounter < 50) {
+					m_pcWheels->SetLinearVelocity(0.02f, -0.02f); 
+				}
+				// after the stuck menuver is done which is after 50 steps we reset the variables and return to previous state
+				else {
+					m_isUnsticking = false;
+					m_stuckTimer = 0;
+					m_proximityStuckTimer = 0; 
+					m_lastStuckPosition = getRobotPosition(); 
+					// super important check to see if ew were in the middle of returning to base
+					if (hasFood) {
+						std::cout << "Unstuck with food! Recalculating path to base." << std::endl;
+						eState = STATE_RETURN_TO_BASE;
+						m_bFacingBase = false; 
+					}
+					else {
+						// if we don;t have food we just conntinue with exploring 
+						eState = STATE_EXPLORE; 
+						chooseCurrMovement(); 
+					}
+				}
+				return; 
 			}
-			// then we turn for 30 steps
-			else if (m_unstickStepCounter < 50) {
-				m_pcWheels->SetLinearVelocity(0.02f, -0.02f); 
+			// this is after the first if statement meaning we are not in the middle of the menuver
+			bool isStuck = false;
+			bool robotClose = false;
+			// check if there are robots which can be teamates or enemies really clise to us
+			for(const auto& blob : m_Readings.BlobList) {
+				if (blob->Color != CColor::GRAY80) {
+					if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
+						robotClose = true;
+						
+						break;
+					}
+				}
 			}
-			// after the stuck menuver is done which is after 50 steps we reset the variables and return to previous state
+			// we upadte the proximityStuckTimer according to if there are robots close to us
+			if (robotClose) {
+				m_proximityStuckTimer++;
+			} 
 			else {
-				m_isUnsticking = false;
-				m_stuckTimer = 0;
-                m_proximityStuckTimer = 0; 
-				m_lastStuckPosition = getRobotPosition(); 
-				// super important check to see if ew were in the middle of returning to base
-                if (hasFood) {
-                    std::cout << "Unstuck with food! Recalculating path to base." << std::endl;
-                    eState = STATE_RETURN_TO_BASE;
-                    m_bFacingBase = false; 
-                }
-                else {
-					// if we don;t have food we just conntinue with exploring 
-				    eState = STATE_EXPLORE; 
-				    chooseCurrMovement(); 
-                }
+				if(m_proximityStuckTimer > 0) m_proximityStuckTimer--;
 			}
-			return; 
-		}
-		// this is after the first if statement meaning we are not in the middle of the menuver
-        bool isStuck = false;
-        bool robotClose = false;
-		// check if there are robots which can be teamates or enemies really clise to us
-        for(const auto& blob : m_Readings.BlobList) {
-            if (blob->Color != CColor::GRAY80) {
-                if (blob->Distance < 15.0f && Abs(blob->Angle.GetValue()) < 0.5f) {
-                    robotClose = true;
-					
-                    break;
-                }
-            }
-        }
-		// we upadte the proximityStuckTimer according to if there are robots close to us
-        if (robotClose) {
-            m_proximityStuckTimer++;
-        } 
-		else {
-            if(m_proximityStuckTimer > 0) m_proximityStuckTimer--;
-        }
-		// if the timer is above 30 we are stuck
-        if (m_proximityStuckTimer > 30) {
-            std::cout << "PROXIMITY STUCK DETECTED! (Blocked by robot)" << std::endl;
-            isStuck = true;
-        }
-		// this is the same logic as before but we use location instead of the camera
-		CVector2 currentPos = getRobotPosition();
-		Real distMoved = (currentPos - m_lastStuckPosition).Length();
+			// if the timer is above 30 we are stuck
+			if (m_proximityStuckTimer > 30) {
+				std::cout << "PROXIMITY STUCK DETECTED! (Blocked by robot)" << std::endl;
+				isStuck = true;
+			}
+			// this is the same logic as before but we use location instead of the camera
+			CVector2 currentPos = getRobotPosition();
+			Real distMoved = (currentPos - m_lastStuckPosition).Length();
 
-		if (distMoved < STUCK_THRESHOLD_DIST) {
-			m_stuckTimer++;
-		} 
-		else {
-			m_stuckTimer = 0;
-			m_lastStuckPosition = currentPos;
+			if (distMoved < STUCK_THRESHOLD_DIST) {
+				m_stuckTimer++;
+			} 
+			else {
+				m_stuckTimer = 0;
+				m_lastStuckPosition = currentPos;
+			}
+			// if we are stuck for sime tine make the flag true
+			if (m_stuckTimer > STUCK_THRESHOLD_TIME) {
+				std::cout << "POSITION STUCK DETECTED!" << std::endl;
+				isStuck = true;
+			}
+			// we are stuck so we make sure we start the menuver
+			if (isStuck) {
+				m_isUnsticking = true;
+				m_unstickStepCounter = 0;
+				return;
+			}
 		}
-		// if we are stuck for sime tine make the flag true
-		if (m_stuckTimer > STUCK_THRESHOLD_TIME) {
-			std::cout << "POSITION STUCK DETECTED!" << std::endl;
-            isStuck = true;
-		}
-		// we are stuck so we make sure we start the menuver
-        if (isStuck) {
-            m_isUnsticking = true;
-			m_unstickStepCounter = 0;
-			return;
-        }
-	}
+
 		// start of switch case
 		switch (eState){
 			case STATE_EXPLORE:{
@@ -170,6 +172,7 @@ namespace argos {
 		// end of control step
 	}
 	// state functions
+	//change movment if needed
 	void Controller1::randomWalk(){
 		walkCounter++;
 		// check if we need to choose a new movement
@@ -179,6 +182,7 @@ namespace argos {
 		}
 		m_pcWheels->SetLinearVelocity(leftWheelSpeed, rightWheelSpeed);
 	}
+
 	// fucntion that choose the next movement randomally
 	void Controller1:: chooseCurrMovement(){
 	
@@ -220,6 +224,7 @@ namespace argos {
 		}
 	}
 	
+	//make the robot optimaly return to base after gathering food
 	void Controller1::returnToBase() {
 		
 		// firstly check if we got to the base
@@ -284,6 +289,7 @@ namespace argos {
 		}
 		return false;
 	}
+
 	// get the base position from the ForagingController class
 	CVector2 Controller1::getBasePosition() const{
 		if(m_basePositions.empty()){
@@ -295,8 +301,9 @@ namespace argos {
 							m_basePositions[0].GetY());
 		}
 	}
+	
 	// helper functions
-	 bool Controller1::isObstacleAhead() const {
+	bool Controller1::isObstacleAhead() const {
       /* Check the front rangefinders */
       bool bObstacle = false;
       
@@ -313,11 +320,13 @@ namespace argos {
       m_pcRangefinders->Visit(fCheckSensor);
       return bObstacle;
    }
+
    // get the robot position from the positioning sensor
 	CVector2 Controller1::getRobotPosition() const{
       const CCI_PositioningSensor::SReading& reading = m_pcPositioning->GetReading();
       return CVector2(reading.Position.GetX(), reading.Position.GetY());
    }
+
    // get the robot heading from the positioning sensor
    CRadians Controller1::getRobotHeading() const{
       CRadians cHeading, cPitch, cRoll;
@@ -326,6 +335,7 @@ namespace argos {
       return cHeading;
    }
 
+    //return an array of the possition of every visibal food that is not taken or about to be taken by an other robot
     std::vector<CVector2> Controller1::getFoodPositions() const {
 		std::vector<CVector2> foodPositions;
 
@@ -359,7 +369,8 @@ namespace argos {
 
 		return foodPositions;
 	}
-	// angle to teammate ahead
+
+	// return the angle to teammate that is infront of the robot. if there is no teamate in front, returns pi
 	CRadians Controller1::angle2TeamAhead() const{
 		for(const auto& blob : m_Readings.BlobList){
 			if(blob->Color == m_teamColor && blob->Angle.SignedNormalize() < CRadians::PI/6){
@@ -369,21 +380,20 @@ namespace argos {
 
 		return CRadians::PI;
 	}
-	// check to see if we need this function
-	bool Controller1::isTeammateAhead() const {
-    for(const auto& blob : m_Readings.BlobList) {
-        if(blob->Color == m_teamColor) {  
-            CRadians angle = blob->Angle.SignedNormalize();
-            // בדיקה אם הרובוט מלפנים (בטווח 30 מעלות) וקרוב
-            if(Abs(angle.GetValue()) < CRadians::PI_OVER_SIX.GetValue() && 
-               blob->Distance < 50.0f) {  
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
+	bool Controller1::isTeammateAhead() const {
+		for(const auto& blob : m_Readings.BlobList) {
+			if(blob->Color == m_teamColor) {  
+				CRadians angle = blob->Angle.SignedNormalize();
+				// בדיקה אם הרובוט מלפנים (בטווח 30 מעלות) וקרוב
+				if(Abs(angle.GetValue()) < CRadians::PI_OVER_SIX.GetValue() && 
+				blob->Distance < 50.0f) {  
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 	
 	// improved move to food that don't follow robots
 	void Controller1::moveToFood2(){
@@ -429,17 +439,37 @@ namespace argos {
 		}
 	}
 
-	//improved avoidObstacle that clears the path for robots with food
+	//improved avoidObstacle
 	void Controller1::avoidObstacle2(){
 		m_pcWheels->SetLinearVelocity(-0.08f, 0.08f); // סיבוב במקום
-    if(!isObstacleAhead()){ 
-        eState = STATE_EXPLORE; 
-        walkCounter = 0; 
-        chooseCurrMovement(); 
-    }
+		if(!isObstacleAhead()){ 
+			eState = STATE_EXPLORE; 
+			walkCounter = 0; 
+			chooseCurrMovement(); 
+		}
+
+		//// old smarter code (deprecated due to poor performence)
+		// CRadians angle2Team = angle2TeamAhead();
+		// if(angle2Team != CRadians::PI){ //only checks if angel2Team exsistes, it will never be pi
+		// 	if (hasFood)
+		// 		return;
+		// 	else
+		// 		m_pcWheels->SetLinearVelocity(0.145f - 0.01f * angle2Team.GetValue(), 0.145f + 0.01f * angle2Team.GetValue()); 
+		// }	
+		// else{
+		// 	m_pcWheels->SetLinearVelocity(-0.04f, 0.04f); 
+		// }
+
+		// if(!isObstacleAhead()){
+		// 	std::cout << "Path clear! Returning to EXPLORE" << std::endl;
+		// 	eState = STATE_EXPLORE;
+		// 	walkCounter = 0; 
+		// 	chooseCurrMovement(); 
+		// }
 	}
 
 	//blocking effort
+	//return the possitions of every enemy robot cerring food
 	std::vector<CVector2> Controller1::enemyWithFoodPossitions() const {
 		std::vector<CVector2> positions;
 		// find enemies that have food (food directly in front of them)
@@ -455,8 +485,10 @@ namespace argos {
 			}
 		}
 		return positions;
+
 	}
-	// follow the enemy with food
+
+	// gets the relative angle to the an enemy and adjust the motors to follow himS
 	void Controller1::followEnemy(const CRadians& relativeAngle) {
 		// move the robot towards the enemy
 		if(relativeAngle.GetAbsoluteValue() < CRadians::PI_OVER_FOUR.GetValue()){
@@ -471,8 +503,22 @@ namespace argos {
 		
 			m_pcWheels->SetLinearVelocity(0.157f, -0.157f);
 		}
+
+		//old interception code
+		// CVector2 robotPos = getRobotPosition();
+		// CRadians robotHeading = getRobotHeading();
+		// CRadians angle = relativeAngle;
+		
+		// float angleToTarget = angle.SignedNormalize().GetValue();
+		// float angleError = CRadians(angleToTarget - lastAngleToTarget).SignedNormalize().GetValue();
+		// lastAngleToTarget = angleToTarget;
+
+		// filterdError = interception_alpha * angleError + (1-interception_alpha) * filterdError;
+
+		// m_pcWheels->SetLinearVelocity(0.25f - interception_K * filterdError, 0.25f + interception_K * filterdError);
 	}
-	// store the enemy base position
+
+	// store the enemy base position (deprecated!)
 	void Controller1::StoreEnemyBasePosition() {
 		enemyBasePos = enemyWithFoodPos;
 		enemyBaseKnown = true;
@@ -480,7 +526,8 @@ namespace argos {
 		std::cout << "Enemy base discovered at "
 				<< enemyBasePos << std::endl;
 	}
-	// go to enemy base and camp there
+
+	// go to enemy base and camp there (deprecated!)
 	void Controller1::GoToEnemyBaseAndCamp() {
 		const CVector3& pos3D = m_pcPositioning->GetReading().Position;
 		CVector2 robotPos(pos3D.GetX(), pos3D.GetY());
@@ -508,6 +555,7 @@ namespace argos {
 			m_pcWheels->SetLinearVelocity(0.1f, -0.1f);
 		}
 	}
+
 	// blocking state function
 	void Controller1::block() {
 		Real minDistance = std::numeric_limits<Real>::max();
@@ -557,6 +605,7 @@ namespace argos {
         followEnemy(relativeAngle);
     	}
 	}
+	
 	// convert relative position to absolute position
 	CVector2 Controller1::relToAbsPosition(const CVector2 blob) const{
 			CVector2 robotPos = getRobotPosition();
@@ -568,7 +617,8 @@ namespace argos {
 
 			return robotPos + blobRel;
 		}
-	// enemy blocking function
+	
+	// block the enemy based on his position and the enemy basepossition
 	void Controller1::enemyBlocking(CVector2 enemyPos, CVector2 enemyGoal){
 		if(!turn4defence(enemyGoal)){
 			 return;
@@ -586,7 +636,8 @@ namespace argos {
 		float speed = ((deltaAng * isRobotCW).GetValue() > 0)? 0.12f : -0.12f;
 		m_pcWheels->SetLinearVelocity(speed , speed);
 	}
-	// turn to defence position function
+
+	// turn perpendicular to the enemy base in order to move on the radios
 	bool Controller1::turn4defence(CVector2 enemyBasePos){
 		CVector2 robotPos = getRobotPosition();
 		CRadians robotHeading = getRobotHeading();
